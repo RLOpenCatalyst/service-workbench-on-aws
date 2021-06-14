@@ -65,7 +65,7 @@ Parameters:
     Description: Which market to purchase workers on - ON_DEMAND or SPOT.
   WorkerBidPrice:
     Type: String
-    Description: Bid price for the worker spot nodes. This is only applicable when Market = SPOT. Specify 0 for Market = ON_DEMAND.
+    Description: Bid price for the worker spot nodes.
   AccessFromCIDRBlock:
     Type: String
     MinLength: 9
@@ -84,9 +84,6 @@ Parameters:
   IamPolicyDocument:
     Type: String
     Description: The IAM policy to be associated with the launched workstation
-  EncryptionKeyArn:
-    Type: String
-    Description: The ARN of the KMS encryption Key used to encrypt data in the cluster
 
 Conditions:
   IamPolicyEmpty: !Equals [!Ref IamPolicyDocument, '{}']
@@ -103,6 +100,39 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+
+  EncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'This is the key used to secure resources in this account'
+      EnableKeyRotation: True
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Allow root access
+            Effect: 'Allow'
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - 'kms:*'
+            Resource: '*'
+          - Sid: Allow use of the key by this account
+            Effect: 'Allow'
+            Principal:
+              AWS: '*'
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+              - 'kms:CreateGrant'
+              - 'kms:RevokeGrant'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref 'AWS::AccountId'
 
   MasterSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -123,27 +153,6 @@ Resources:
       Roles:
         - Ref: Ec2Role
     Type: AWS::IAM::InstanceProfile
-
-  InstanceRolePermissionBoundary:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Description: Permission boundary for EC2 instance role
-      ManagedPolicyName: !Join ['-', [Ref: Namespace, 'emr-permission-boundary']]
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - 's3:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'kms:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'sts:AssumeRole'
-            Resource: 'arn:aws:iam::*:role/swb-*'
 
   Ec2Role:
     Type: 'AWS::IAM::Role'
@@ -172,7 +181,7 @@ Resources:
               - Effect: 'Allow'
                 Action: 's3:GetObject'
                 Resource:
-                  - !Sub 'arn:aws:s3:::${AWS::Region}.elasticmapreduce/bootstrap-actions/run-if'
+                  - 'arn:aws:s3:::us-east-1.elasticmapreduce/bootstrap-actions/run-if'
                   - !Sub
                     - 'arn:aws:s3:::${S3Location}/*'
                     # Remove "s3://" prefix from EnvironmentInstanceFiles
@@ -187,7 +196,6 @@ Resources:
                     s3:prefix: !Sub
                       - '${S3Prefix}/*'
                       - S3Prefix: !Select [3, !Split ['/', !Ref EnvironmentInstanceFiles]]
-      PermissionsBoundary: !Ref InstanceRolePermissionBoundary
 
   ServiceRole:
     Type: AWS::IAM::Role
@@ -204,28 +212,19 @@ Resources:
         Version: '2012-10-17'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceRole
-      PermissionsBoundary: arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceRole
 
   EmrSecurityConfiguration:
     Type: AWS::EMR::SecurityConfiguration
     Properties:
       SecurityConfiguration:
-        {
-          'EncryptionConfiguration':
-            {
-              'AtRestEncryptionConfiguration':
-                {
-                  'LocalDiskEncryptionConfiguration':
-                    {
-                      'EncryptionKeyProviderType': 'AwsKms',
-                      'AwsKmsKey': { 'Ref': 'EncryptionKeyArn' },
-                      'EnableEbsEncryption': true,
-                    },
-                },
-              'EnableInTransitEncryption': false,
-              'EnableAtRestEncryption': true,
-            },
-        }
+        EncryptionConfiguration:
+          EnableInTransitEncryption: false
+          EnableAtRestEncryption: true
+          AtRestEncryptionConfiguration:
+            LocalDiskEncryptionConfiguration:
+              EncryptionKeyProviderType: AwsKms
+              AwsKmsKey: !GetAtt EncryptionKey.Arn
+              EnableEbsEncryption: true
 
   # TODO: customise jupyter password from launch ui
   # TODO: Add security configuration to cluster
@@ -241,7 +240,7 @@ Resources:
       BootstrapActions:
         - Name: Run-Python-Jupyter
           ScriptBootstrapAction:
-            Path: !Sub 's3://${AWS::Region}.elasticmapreduce/bootstrap-actions/run-if'
+            Path: s3://us-east-1.elasticmapreduce/bootstrap-actions/run-if
             Args:
               - 'instance.isMaster=true'
               - '/opt/hail-on-AWS-spot-instances/src/jupyter_run.sh'
@@ -335,38 +334,3 @@ Outputs:
   WorkspaceInstanceRoleArn:
     Description: IAM role assumed by the EMR workspace instances
     Value: !GetAtt Ec2Role.Arn
-
-  #  Connection related outputs. These outputs need to have prefix "MetaConnection"
-  #  The "connections" are derived based on the CFN outputs as follows.
-  #
-  #  CFN outputs with the OutputKey having format "MetaConnection<ConnectionAttrib>" or "MetaConnection<N><ConnectionAttrib>"
-  #  are used for extracting connection information.
-  #  - If the environment has only one connection then it can have outputs with "MetaConnection<ConnectionAttrib>" format.
-  #  - If it has multiple connections then it can have outputs with "MetaConnection<N><ConnectionAttrib>" format.
-  #  For example, MetaConnection1Name, MetaConnection2Name, etc.
-  #
-  #  The expected CFN output variables used for capturing connections related information are as follows:
-  #
-  #  - MetaConnectionName (or MetaConnection<N>Name) - Provides name for connection
-  #
-  #  - MetaConnectionUrl (or MetaConnection<N>Url) - Provides connection url, if available
-  #
-  #  - MetaConnectionScheme (or MetaConnection<N>Scheme) - Provides connection protocol information such as http, https, ssh, jdbc, odbc etc
-  #
-  #  - MetaConnectionType (or MetaConnection<N>Type) - Provides type of the connection such as "SageMaker", "EMR", "FOO", "BAR" etc
-  #
-  #  - MetaConnectionInfo (or MetaConnection<N>Info) - Provides extra information required to form connection url.
-  #  For example, in case of MetaConnectionType = SageMaker, the MetaConnectionInfo should provide SageMaker notebook
-  #  instance name that can be used to form pre-signed SageMaker URL.
-  #
-  #  - MetaConnectionInstanceId (or MetaConnection<N>InstanceId) - Provides AWS EC2 instanceId of the instance to connect to when applicable.
-  #  Currently this is applicable only when ConnectionScheme = 'ssh'.
-  #  This instanceId will be used for sending user's SSH public key using AWS EC2 Instance Connect when user wants to SSH to the instance.
-  #
-  MetaConnection1Name:
-    Description: Name for connection 1
-    Value: Main URL for the Jupyter Notebook
-
-  MetaConnection1Url:
-    Description: URL to connect to the Jupyter Notebook
-    Value: !Sub 'http://${EmrCluster.MasterPublicDNS}:8192'
