@@ -20,12 +20,10 @@ Resources:
     Type: AWS::SNS::Topic
     Properties: !If
       - SubscribeNotificationEmail
-      -
-        Subscription:
+      - Subscription:
           - Endpoint: ${self:custom.settings.emailForNotifications}
             Protocol: email
-        KmsMasterKeyId: alias/aws/sns
-      - KmsMasterKeyId: alias/aws/sns
+      - !Ref AWS::NoValue
 
   # SNS Topic Policy to allow CloudWatch Event Service to send notifications to the topic
   PipelineNotificationsTopicPolicy:
