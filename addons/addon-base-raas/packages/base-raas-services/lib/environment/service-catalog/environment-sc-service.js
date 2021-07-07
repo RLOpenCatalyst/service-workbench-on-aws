@@ -345,24 +345,30 @@ class EnvironmentScService extends Service {
     ) {
       const { currentIngressRules } = await this.getSecurityGroupDetails(requestContext, env);
 
-      // Validate the CFT output if RStudio is exist then retrieve the describe rule and inject into the currentIngressRules
-      const { MetaConnection1Type, ListenerRuleARN } = cfnOutputsArrayToObject(env.outputs);
-      if (MetaConnection1Type === 'RStudioV2') {
-        const albService = await this.service('albService');
-        const resolvedVars = { ruleARN: ListenerRuleARN, projectId: env.projectId };
-        const ruleSourceIps = await albService.describeRules(requestContext, resolvedVars);
-        currentIngressRules.map(obj => {
-          if (obj.fromPort === 443) {
-            obj.cidrBlocks = ruleSourceIps;
-          }
-          return obj;
-        });
-      }
+      // Validate the CFT output if RStudio is exist then retrieve the describe rule and
+      // inject into the currentIngressRules
+      await this.describeELBRule(env, requestContext, currentIngressRules);
       env.cidr = currentIngressRules;
     }
 
     const [toReturn] = await this.augmentWithConnectionInfo(requestContext, [env]);
     return toReturn;
+  }
+
+  async describeELBRule(env, requestContext, currentIngressRules) {
+    const { MetaConnection1Type, ListenerRuleARN } = cfnOutputsArrayToObject(env.outputs);
+    if (MetaConnection1Type === 'RStudioV2') {
+      const albService = await this.service('albService');
+      const resolvedVars = { ruleARN: ListenerRuleARN, projectId: env.projectId };
+      const ruleSourceIps = await albService.describeRules(requestContext, resolvedVars);
+      const elbRule = {
+        protocol: 'tcp',
+        fromPort: 443,
+        toPort: 443,
+        cidrBlocks: ruleSourceIps,
+      };
+      currentIngressRules.push(elbRule);
+    }
   }
 
   async mustFind(requestContext, { id, fields = [], fetchCidr = true }) {

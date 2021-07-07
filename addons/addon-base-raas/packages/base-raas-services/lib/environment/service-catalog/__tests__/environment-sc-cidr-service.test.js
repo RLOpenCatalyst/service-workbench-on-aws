@@ -841,4 +841,120 @@ describe('EnvironmentScCidrService', () => {
       expect(service.authorizeSecurityGroupIngress).not.toHaveBeenCalled();
     });
   });
+
+  describe('modifyELBRule', () => {
+    it('should pass and return the product name and cloned update request', async () => {
+      const updateRequest = [
+        { protocol: 'tcp', fromPort: 22, toPort: 22, cidrBlocks: ['0.0.0.0/0'] },
+        { protocol: 'tcp', fromPort: 80, toPort: 80, cidrBlocks: ['0.0.0.0/0'] },
+        { protocol: 'tcp', fromPort: 443, toPort: 443, cidrBlocks: ['0.0.0.0/0', '223.226.19.63/32'] },
+      ];
+      const existingEnvironment = {
+        outputs: [
+          { OutputKey: 'MetaConnection1Type', OutputValue: 'RStudioV2' },
+          { OutputKey: 'ListenerRuleARN', OutputValue: 'ListenerRuleARN' },
+        ],
+      };
+      const responseObj = {
+        productName: 'RStudioV2',
+        cloneUpdateRequest: JSON.stringify(updateRequest),
+      };
+      const albService = {
+        modifyRule: jest.fn(),
+      };
+      albService.modifyRule = jest.fn().mockImplementation(() => {
+        return {};
+      });
+      const response = await service.modifyELBRule(existingEnvironment, updateRequest, albService, {});
+      expect(response).toEqual(responseObj);
+    });
+  });
+
+  describe('authorizeIngressRuleWithSecurityGroup', () => {
+    it('should call authorize security group', async () => {
+      const updateRule = {
+        fromPort: 443,
+        toPort: 443,
+        protocol: 'tcp',
+        groupId: 'alb-groupId',
+      };
+      const expectedParam = {
+        GroupId: 'instance-groupId',
+        IpPermissions: [
+          {
+            FromPort: 443,
+            ToPort: 443,
+            IpProtocol: 'tcp',
+            UserIdGroupPairs: [
+              {
+                GroupId: 'alb-groupId',
+              },
+            ],
+          },
+        ],
+      };
+      service.authorizeSecurityGroupIngress = jest.fn();
+      service.getEc2Client = jest.fn(() => {
+        return {};
+      });
+      await service.authorizeIngressRuleWithSecurityGroup({}, 'envId', updateRule, 'instance-groupId');
+      expect(service.authorizeSecurityGroupIngress).toHaveBeenCalledWith({}, expectedParam);
+    });
+
+    it('should throw error when authorize scurity group fails', async () => {
+      service.authorizeSecurityGroupIngress = jest.fn(() => {
+        throw new Error('Security group update failed');
+      });
+      service.getEc2Client = jest.fn(() => {
+        return {};
+      });
+      await expect(service.authorizeIngressRuleWithSecurityGroup({}, 'envId', {}, 'groupId')).rejects.toThrow(
+        'Instance security group update failed with message - Security group update failed',
+      );
+    });
+  });
+
+  describe('revokeIngressRuleWithSecurityGroup', () => {
+    it('should call revoke security group', async () => {
+      const updateRule = {
+        fromPort: 443,
+        toPort: 443,
+        protocol: 'tcp',
+        groupId: 'alb-groupId',
+      };
+      const expectedParam = {
+        GroupId: 'instance-groupId',
+        IpPermissions: [
+          {
+            FromPort: 443,
+            ToPort: 443,
+            IpProtocol: 'tcp',
+            UserIdGroupPairs: [
+              {
+                GroupId: 'alb-groupId',
+              },
+            ],
+          },
+        ],
+      };
+      service.revokeSecurityGroupIngress = jest.fn();
+      service.getEc2Client = jest.fn(() => {
+        return {};
+      });
+      await service.revokeIngressRuleWithSecurityGroup({}, 'envId', updateRule, 'instance-groupId');
+      expect(service.revokeSecurityGroupIngress).toHaveBeenCalledWith({}, expectedParam);
+    });
+
+    it('should throw error when authorize scurity group fails', async () => {
+      service.revokeSecurityGroupIngress = jest.fn(() => {
+        throw new Error('Security group update failed');
+      });
+      service.getEc2Client = jest.fn(() => {
+        return {};
+      });
+      await expect(service.revokeIngressRuleWithSecurityGroup({}, 'envId', {}, 'groupId')).rejects.toThrow(
+        'Instance security group update failed with message - Security group update failed',
+      );
+    });
+  });
 });
