@@ -150,7 +150,7 @@ const User = types
       return self.isExternalResearcher && !_.isEmpty(self.encryptedCreds) && self.encryptedCreds !== 'N/A';
     },
 
-    // TODO - this should not be a view, it should be moved to the actions section
+    // this should not be a view, it should be moved to the actions section
     //      - a better approach is to do unencryptedCreds as a view but then
     //      have the call to store the pin in a separate method that is in the action
     async unencryptedCreds(pin) {
