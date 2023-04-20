@@ -1,3 +1,4 @@
+export SCRIPTS="$1"
 export OS="$(sed -n 's/^NAME="\([^"]*\)"/\1/p' /etc/os-release)"
 export AMZ_LNX="Amazon Linux"
 export CENTOS="CentOS Linux"
@@ -7,6 +8,7 @@ export SUSE="SLES"
 export AWS_AVAIL_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
 export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
+aws configure set default.region $AWS_REGION
 
 function pmngr() {
   if [ "$OS" == "$SUSE" ]
@@ -15,7 +17,7 @@ function pmngr() {
   fi
 }
 function get_secret() {
-  aws secretsmanager get-secret-value --secret-id "$1" --output text --query SecretString --region $AWS_REGION | jq --raw-output ".$2"
+  aws secretsmanager get-secret-value --secret-id "$1" --output text --query SecretString | jq --raw-output ".$2"
 }
 function update_status() {
   echo "## $1"
@@ -24,9 +26,9 @@ export -f pmngr get_secret update_status
 
 pmngr install jq
 
-export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn --region $AWS_REGION | jq --raw-output .Parameter.Value)"
-export PROJECT="$(aws ssm get-parameter --name /config/account_config_arn --region $AWS_REGION | jq --raw-output .Parameter.Value)"
-export BUCKET="$(aws ssm get-parameter --name /config/software_bucket --region $AWS_REGION | jq --raw-output .Parameter.Value)"
+export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn | jq --raw-output .Parameter.Value)"
+export PROJECT="$(aws ssm get-parameter --name /config/account_config_arn | jq --raw-output .Parameter.Value)"
+export BUCKET="$(aws ssm get-parameter --name /config/software_bucket | jq --raw-output .Parameter.Value)"
 
 if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; then
   # Install git, set up private key, set up github configs, and clone scripts repo

@@ -20,10 +20,9 @@ then
 fi
 
 security_agents="$INSTALL_DIR/get_security_agents.sh"
-export SCRIPTS="$INSTALL_DIR/lz-cicd-ec2-scripts"
 if [ -s "$security_agents" ]; then
     sudo chmod 500 "$security_agents"
-    sudo "$security_agents" >> /var/log/security_agents.log
+    sudo $security_agents "$INSTALL_DIR/lz-cicd-ec2-scripts" >> /var/log/security_agents_2.log
 fi
 
 bootstrap_script="$INSTALL_DIR/bootstrap.sh"
