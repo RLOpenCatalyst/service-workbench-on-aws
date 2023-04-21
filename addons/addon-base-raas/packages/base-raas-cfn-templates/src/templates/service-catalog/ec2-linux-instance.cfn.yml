@@ -136,10 +136,9 @@ Resources:
               - Effect: 'Allow'
                 Action:
                   - 'secretsmanager:GetSecretValue'
-                  - 'kms:*'
-                  - 's3:*'
-                  - 'ec2:CreateTags'
-                  - 'ec2:DescribeTags'
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                  - 's3:GetObject'
                 Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:
