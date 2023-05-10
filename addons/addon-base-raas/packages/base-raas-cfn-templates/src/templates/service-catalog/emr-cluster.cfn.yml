@@ -193,8 +193,6 @@ Resources:
               - 'kms:GenerateDataKey'
               - 'ec2:CreateTags'
               - 'ec2:DeleteTags'
-              - 'ec2:DescribeTags'
-              - 'ec2:DescribeInstances'
             Resource: '*'
           - Effect: Allow
             Action:

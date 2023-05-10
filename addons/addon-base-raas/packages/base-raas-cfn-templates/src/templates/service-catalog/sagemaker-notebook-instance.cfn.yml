@@ -90,10 +90,8 @@ Resources:
               - 'logs:*'
               - 'kms:Decrypt'
               - 'kms:GenerateDataKey'
-              - 'ec2:CreateTags'
-              - 'ec2:DeleteTags'
-              - 'ec2:DescribeTags'
-              - 'ec2:DescribeInstances'
+              - 'sagemaker:DeleteTags'
+              - 'sagemaker:AddTags'
             Resource: '*'
           - Effect: Allow
             Action:
