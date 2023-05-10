@@ -189,7 +189,12 @@ Resources:
               - 'ssm:Get*'
               - 'secretsmanager:Get*'
               - 's3:*'
-              - 'kms:*'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
+              - 'ec2:DescribeTags'
+              - 'ec2:DescribeInstances'
             Resource: '*'
           - Effect: Allow
             Action:
@@ -221,6 +226,20 @@ Resources:
           - !Ref 'AWS::NoValue'
           - PolicyName: !Join ['-', [Ref: Namespace, 's3-egressstore-policy']]
             PolicyDocument: !Ref EgressStoreIamPolicyDocument
+        - PolicyName: !Join ['-', [Ref: Namespace, 'tag-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:DeleteTags'
+                  - 'ec2:DescribeTags'
+                  - 'ec2:DescribeInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringLike:
+                    ec2:ResourceTag/Name: !Sub '${Namespace}-emr'
         - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -233,7 +252,9 @@ Resources:
               - Effect: 'Allow'
                 Action:
                   - 'secretsmanager:GetSecretValue'
-                  - 'kms:*'
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                  - 's3:GetObject'
                 Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:

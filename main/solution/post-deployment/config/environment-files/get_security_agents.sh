@@ -35,7 +35,7 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   echo "## Pulling scripts from private repo hms-dbmi/lz-cicd-ec2-scripts"
   pmngr install git
   echo "[ssh.github.com]:443 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=" >> ~/.ssh/known_hosts
-  aws secretsmanager get-secret-value --secret-id lz-cicd-ec2-scripts --output text --query SecretString > ~/.ssh/lz-cicd-ec2-scripts
+  aws s3 cp s3://$BUCKET/lz-cicd-ec2-scripts-github-key.txt ~/.ssh/lz-cicd-ec2-scripts --sse AES256
   echo -e "Host github.com-lz-cicd-ec2-scripts\n  Hostname github.com\n  IdentityFile /root/.ssh/lz-cicd-ec2-scripts" >> ~/.ssh/config
   chmod 600 ~/.ssh/lz-cicd-ec2-scripts
   eval "$(ssh-agent -s)"

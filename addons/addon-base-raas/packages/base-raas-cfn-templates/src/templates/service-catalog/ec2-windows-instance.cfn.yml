@@ -134,12 +134,15 @@ Resources:
                 Action:
                   - 'ec2:CreateTags'
                   - 'ec2:DeleteTags'
-                  - 'ec2:DescribeTags'
-                  - 'ec2:DescribeInstances'
                 Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
                 Condition:
                   StringLike:
-                    ec2:ResourceTag/Name: !Join ['-', [Ref: Namespace, 'ec2-linux']]
+                    ec2:ResourceTag/Name: !Sub '${Namespace}-ec2-windows'
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:DescribeTags'
+                  - 'ec2:DescribeInstances'
+                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -407,6 +410,11 @@ Resources:
           Invoke-WebRequest 'https://github.com/hms-dbmi/Access-to-Data-using-PIC-SURE-API/archive/refs/heads/master.zip' -OutFile .\picsure.zip
           Expand-Archive .\picsure.zip .\
           Remove-Item .\picsure.zip
+
+          $uri = [System.Uri]"${EnvironmentInstanceFiles}"
+          $key = "$($uri.AbsolutePath.Substring(1))/windows/get_security_agents.ps1"
+          Read-S3Object -BucketName $uri.Host -Key $key -File get_security_agents.ps1
+          ."C:\workdir\get_security_agents.ps1"
 
           cfn-signal.exe -e $lastexitcode --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
           </powershell>
