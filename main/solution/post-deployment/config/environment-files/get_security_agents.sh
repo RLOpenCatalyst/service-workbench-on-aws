@@ -40,7 +40,7 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   chmod 600 ~/.ssh/lz-cicd-ec2-scripts
   eval "$(ssh-agent -s)"
   ssh-add ~/.ssh/lz-cicd-ec2-scripts
-  git clone ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
+  git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
 
   $SCRIPTS/security_agents.sh
 fi

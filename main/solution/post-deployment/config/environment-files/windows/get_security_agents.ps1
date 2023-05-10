@@ -54,7 +54,7 @@ bash -c @'
 chmod 600 ~/.ssh/lz-cicd-ec2-scripts
 eval `ssh-agent -s`
 ssh-add ~/.ssh/lz-cicd-ec2-scripts
-git clone ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git ./lz-cicd-ec2-scripts
+git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git ./lz-cicd-ec2-scripts
 '@
 
 Remove-Item -Path "$env:UserProfile\.ssh\lz-cicd-ec2-scripts"
