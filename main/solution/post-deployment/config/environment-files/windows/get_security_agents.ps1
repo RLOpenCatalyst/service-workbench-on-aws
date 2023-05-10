@@ -58,7 +58,11 @@ git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cic
 
 Remove-Item -Path "$env:UserProfile\.ssh\lz-cicd-ec2-scripts"
 
-# Run security script
-.\lz-cicd-ec2-scripts\windows\security_agents.ps1
+# Secured project settings
+$secret_arn="$(Get-SSMParameter -Name "/config/secrets_arn" -Select "Parameter.Value")"
+$project="$(Get-SSMParameter -Name "/config/account_config_arn" -Select "Parameter.Value")"
+$bucket="$(Get-SSMParameter -Name "/config/software_bucket" -Select "Parameter.Value")"
+
+.\lz-cicd-ec2-scripts\windows\security_agents.ps1 -secret_arn $secret_arn -project $project -bucket $bucket
 
 Remove-Item -Recurse -Force .\lz-cicd-ec2-scripts\

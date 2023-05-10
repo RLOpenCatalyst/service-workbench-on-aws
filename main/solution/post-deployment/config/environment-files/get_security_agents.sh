@@ -12,6 +12,7 @@ aws configure set default.region $AWS_REGION
 
 pmngr install jq
 
+# Secured project settings
 export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn | jq --raw-output .Parameter.Value)"
 export PROJECT="$(aws ssm get-parameter --name /config/account_config_arn | jq --raw-output .Parameter.Value)"
 export BUCKET="$(aws ssm get-parameter --name /config/software_bucket | jq --raw-output .Parameter.Value)"
