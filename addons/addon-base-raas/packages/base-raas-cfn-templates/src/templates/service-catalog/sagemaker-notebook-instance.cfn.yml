@@ -84,7 +84,7 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
-              - 'ssm:Get*'
+              - 'ssm:GetParameter*'
               - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'logs:*'

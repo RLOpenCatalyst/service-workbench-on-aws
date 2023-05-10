@@ -10,20 +10,6 @@ export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-i
 export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
 aws configure set default.region $AWS_REGION
 
-function pmngr() {
-  if [ "$OS" == "$SUSE" ]
-    then zypper -n "$@"
-    else yum -y "$@"
-  fi
-}
-function get_secret() {
-  aws secretsmanager get-secret-value --secret-id "$1" --output text --query SecretString | jq --raw-output ".$2"
-}
-function update_status() {
-  echo "## $1"
-}
-export -f pmngr get_secret update_status
-
 pmngr install jq
 
 export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn | jq --raw-output .Parameter.Value)"
@@ -41,6 +27,11 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   eval "$(ssh-agent -s)"
   ssh-add ~/.ssh/lz-cicd-ec2-scripts
   git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
+
+  # pull in util scripts and override update_status method to just print to console
+  source $SCRIPTS/util_methods.sh 
+  function update_status() { echo "## $1" }
+  export -f  update_status
 
   $SCRIPTS/security_agents.sh
 fi

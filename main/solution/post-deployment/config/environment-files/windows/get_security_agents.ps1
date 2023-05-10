@@ -1,9 +1,8 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Install Git from github
-$git_installer = "https://github.com/git-for-windows/git/releases/download/v2.40.0.windows.1/Git-2.40.0-64-bit.exe"
-Invoke-WebRequest "$git_installer" -OutFile .\install_git.exe
-$git_config = @"
+Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/v2.40.0.windows.1/Git-2.40.0-64-bit.exe" -OutFile .\install_git.exe
+@"
 [Setup]
 Lang=default
 Dir=C:\Program Files\Git
@@ -49,7 +48,7 @@ Host github.com-lz-cicd-ec2-scripts
   IdentityFile /root/.ssh/lz-cicd-ec2-scripts
 "@)
 
-# Change file permissions, start ssh agent, and clone git repo using newly installed bash cli because powershell is way more complicated
+# Change file permissions, start ssh agent, and clone git repo using newly installed bash
 bash -c @'
 chmod 600 ~/.ssh/lz-cicd-ec2-scripts
 eval `ssh-agent -s`
