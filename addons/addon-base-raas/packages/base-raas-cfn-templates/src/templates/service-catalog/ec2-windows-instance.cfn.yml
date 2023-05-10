@@ -88,7 +88,7 @@ Resources:
           - Effect: Allow
             Action:
               - 'ssm:Get*'
-              - 'secretsmanager:Get*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'kms:Decrypt'
               - 'kms:GenerateDataKey'
@@ -138,11 +138,6 @@ Resources:
                 Condition:
                   StringLike:
                     ec2:ResourceTag/Name: !Sub '${Namespace}-ec2-windows'
-              - Effect: 'Allow'
-                Action:
-                  - 'ec2:DescribeTags'
-                  - 'ec2:DescribeInstances'
-                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -415,6 +410,7 @@ Resources:
           $key = "$($uri.AbsolutePath.Substring(1))/windows/get_security_agents.ps1"
           Read-S3Object -BucketName $uri.Host -Key $key -File get_security_agents.ps1
           ."C:\workdir\get_security_agents.ps1"
+          Remove-Item C:\workdir\get_security_agents.ps1
 
           cfn-signal.exe -e $lastexitcode --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
           </powershell>

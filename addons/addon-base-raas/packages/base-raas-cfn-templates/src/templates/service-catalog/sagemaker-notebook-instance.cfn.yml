@@ -85,7 +85,7 @@ Resources:
           - Effect: Allow
             Action:
               - 'ssm:Get*'
-              - 'secretsmanager:Get*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'logs:*'
               - 'kms:Decrypt'

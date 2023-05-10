@@ -187,7 +187,7 @@ Resources:
           - Effect: Allow
             Action:
               - 'ssm:Get*'
-              - 'secretsmanager:Get*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'kms:Decrypt'
               - 'kms:GenerateDataKey'
@@ -234,8 +234,6 @@ Resources:
                 Action:
                   - 'ec2:CreateTags'
                   - 'ec2:DeleteTags'
-                  - 'ec2:DescribeTags'
-                  - 'ec2:DescribeInstances'
                 Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
                 Condition:
                   StringLike:
