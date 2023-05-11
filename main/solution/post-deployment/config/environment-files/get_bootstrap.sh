@@ -29,7 +29,7 @@ bootstrap_script="$INSTALL_DIR/bootstrap.sh"
 if [ -s "$bootstrap_script" ]
 then
     sudo chmod 500 "$bootstrap_script"
-    sudo "$bootstrap_script" "$s3_mounts"
+    sudo "$bootstrap_script" "$s3_mounts" >> /var/log/bootstrap.log
 fi
 
 exit 0

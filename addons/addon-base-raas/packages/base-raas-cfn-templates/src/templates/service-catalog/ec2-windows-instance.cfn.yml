@@ -391,6 +391,12 @@ Resources:
 
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+          $uri = [System.Uri]"${EnvironmentInstanceFiles}"
+          $key = "$($uri.AbsolutePath.Substring(1))/windows/get_security_agents.ps1"
+          Read-S3Object -BucketName $uri.Host -Key $key -File get_security_agents.ps1
+          ."C:\workdir\get_security_agents.ps1"
+          Remove-Item C:\workdir\get_security_agents.ps1
+
           # Add example workbooks from github
           cd C:\Users\Administrator\Desktop\
           mkdir example_workflows
@@ -403,12 +409,6 @@ Resources:
           Invoke-WebRequest 'https://github.com/hms-dbmi/Access-to-Data-using-PIC-SURE-API/archive/refs/heads/master.zip' -OutFile .\picsure.zip
           Expand-Archive .\picsure.zip .\
           Remove-Item .\picsure.zip
-
-          $uri = [System.Uri]"${EnvironmentInstanceFiles}"
-          $key = "$($uri.AbsolutePath.Substring(1))/windows/get_security_agents.ps1"
-          Read-S3Object -BucketName $uri.Host -Key $key -File get_security_agents.ps1
-          ."C:\workdir\get_security_agents.ps1"
-          Remove-Item C:\workdir\get_security_agents.ps1
 
           cfn-signal.exe -e $lastexitcode --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
           </powershell>

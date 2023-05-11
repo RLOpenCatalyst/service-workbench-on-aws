@@ -10,14 +10,24 @@ export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-i
 export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
 aws configure set default.region $AWS_REGION
 
-pmngr install jq
+function pmngr(){
+  if [ "$OS" == "$SUSE" ]
+    then zypper -n "$@"
+    else yum -y "$@"
+  fi
+}
+export -f pmngr
 
 # Secured project settings
 export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn | jq --raw-output .Parameter.Value)"
 export PROJECT="$(aws ssm get-parameter --name /config/account_config_arn | jq --raw-output .Parameter.Value)"
 export BUCKET="$(aws ssm get-parameter --name /config/software_bucket | jq --raw-output .Parameter.Value)"
 
+# Only attempt to install the security agents if the above config parameters are set in the host account.
+# If they are not set, then we assume this is not an env we shoud install BCH/HMS software into, so we skip agent installation.
 if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; then
+  pmngr install jq
+
   # Install git, set up private key, set up github configs, and clone scripts repo
   echo "## Pulling scripts from private repo hms-dbmi/lz-cicd-ec2-scripts"
   pmngr install git
@@ -31,7 +41,9 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
 
   # pull in util scripts and override update_status method to just print to console
   source $SCRIPTS/util_methods.sh 
-  function update_status() { echo "## $1" }
+  function update_status() {
+    echo "## $1"
+  }
   export -f  update_status
 
   $SCRIPTS/security_agents.sh
