@@ -71,9 +71,9 @@ git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cic
 
 ."$install_dir\lz-cicd-ec2-scripts\windows\security_agents.ps1" -secret_arn $secret_arn -project $project -bucket $bucket
 
-# Cleanup if all goes well
+# Cleanup install files, key and scripts folder
 Remove-Item -Path "$install_dir\git_config.txt"
-Remove-Item -Path "$install_dir\install_git.exe"
+Remove-Item -Path -Force "$install_dir\install_git.exe"
 Remove-Item -Path "$env:UserProfile\.ssh\lz-cicd-ec2-scripts"
 Remove-Item -Recurse -Force "$install_dir\lz-cicd-ec2-scripts\"
 

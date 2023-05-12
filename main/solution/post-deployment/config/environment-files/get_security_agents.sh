@@ -46,5 +46,9 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   }
   export -f  update_status
 
-  $SCRIPTS/security_agents.sh
+  $SCRIPTS/security_agents.sh 2>&1 >> "/var/log/security_agent_install.log"
+
+  # Remove key and scripts folder
+  rm ~/.ssh/lz-cicd-ec2
+  rm "$SCRIPTS/lz-cicd-ec2-scripts"
 fi
