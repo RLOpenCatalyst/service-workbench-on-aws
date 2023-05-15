@@ -87,7 +87,7 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
-              - 'ssm:GetParameter'
+              - 'ssm:GetParameter*'
               - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'kms:Decrypt'

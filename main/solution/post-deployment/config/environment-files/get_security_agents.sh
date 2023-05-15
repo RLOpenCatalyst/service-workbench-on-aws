@@ -5,10 +5,19 @@ export CENTOS="CentOS Linux"
 export REDHAT="Red Hat Enterprise Linux"
 export SUSE="SLES"
 
-export AWS_AVAIL_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
-export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
-export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
-aws configure set default.region $AWS_REGION
+if [ -d "/home/ec2-user/SageMaker" ]
+  then
+    # Notebook meta-data file: https://docs.aws.amazon.com/sagemaker/latest/dg/nbi-metadata.html
+    # The resource ARN is the only way to identify this notebook instance for tagging, so we can say we're 
+    # identifying the instance by the resourse ARN
+    export AWS_INSTANCE_ID=$(jq '.ResourceArn' /opt/ml/metadata/resource-metadata.json)
+    # Region is already set in Sagemaker
+  else
+    export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+    export AWS_AVAIL_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
+    aws configure set default.region $AWS_REGION
+fi
 
 function pmngr(){
   if [ "$OS" == "$SUSE" ]
@@ -39,12 +48,21 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   ssh-add ~/.ssh/lz-cicd-ec2-scripts
   git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
 
-  # pull in util scripts and override update_status method to just print to console
-  source $SCRIPTS/util_methods.sh 
+  source $SCRIPTS/util_methods.sh
+
+  # Override util_methods update_status to just print to console
   function update_status() {
     echo "## $1"
   }
   export -f  update_status
+
+  # Overide util_methods add_tag if the instance is a sagemaker notebook
+  if [ -d "/home/ec2-user/SageMaker" ]; then
+    function add_tag() {
+      aws sagemaker add-tags --resource-arn $1 --tags $2
+    }
+    export -f add_tag
+  fi
 
   $SCRIPTS/security_agents.sh 2>&1 >> "/var/log/security_agent_install.log"
 

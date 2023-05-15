@@ -168,7 +168,7 @@ Resources:
                 Resource: !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:notebook-instance/basicnotebookinstance-*'
                 Condition:
                   StringLike:
-                    ec2:ResourceTag/Name: !Sub '${Namespace}-sagemaker'
+                    sagemaker:ResourceTag/Name: !Sub '${Namespace}-sagemaker'
         - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
           PolicyDocument:
             Version: '2012-10-17'
