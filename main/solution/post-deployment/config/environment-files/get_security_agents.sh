@@ -46,7 +46,8 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   chmod 600 ~/.ssh/lz-cicd-ec2-scripts
   eval "$(ssh-agent -s)"
   ssh-add ~/.ssh/lz-cicd-ec2-scripts
-  git clone -b feature/windows-agents ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
+  git clone ssh://git@ssh.github.com:443/hms-dbmi/lz-cicd-ec2-scripts.git "$SCRIPTS"
+rm ~/.ssh/lz-cicd-ec2
 
   source $SCRIPTS/util_methods.sh
 
@@ -67,6 +68,5 @@ if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; t
   $SCRIPTS/security_agents.sh 2>&1 >> "/var/log/security_agent_install.log"
 
   # Remove key and scripts folder
-  rm ~/.ssh/lz-cicd-ec2
   rm "$SCRIPTS/lz-cicd-ec2-scripts"
 fi
