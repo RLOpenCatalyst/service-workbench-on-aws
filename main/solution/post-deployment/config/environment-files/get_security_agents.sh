@@ -5,20 +5,6 @@ export CENTOS="CentOS Linux"
 export REDHAT="Red Hat Enterprise Linux"
 export SUSE="SLES"
 
-if [ -d "/home/ec2-user/SageMaker" ]
-  then
-    # Notebook meta-data file: https://docs.aws.amazon.com/sagemaker/latest/dg/nbi-metadata.html
-    # The resource ARN is the only way to identify this notebook instance for tagging, so we can say we're 
-    # identifying the instance by the resourse ARN
-    export AWS_INSTANCE_ID=$(jq '.ResourceArn' /opt/ml/metadata/resource-metadata.json)
-    # Region is already set in Sagemaker
-  else
-    export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
-    export AWS_AVAIL_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
-    export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
-    aws configure set default.region $AWS_REGION
-fi
-
 function pmngr(){
   if [ "$OS" == "$SUSE" ]
     then zypper -n "$@"
@@ -26,6 +12,22 @@ function pmngr(){
   fi
 }
 export -f pmngr
+
+pmngr install jq
+
+if [ -d "/home/ec2-user/SageMaker" ]
+  then
+    # Notebook meta-data file: https://docs.aws.amazon.com/sagemaker/latest/dg/nbi-metadata.html
+    # The resource ARN is the only way to identify this notebook instance for tagging, so we can say we're 
+    # identifying the instance by the resourse ARN
+    export AWS_INSTANCE_ID=$(jq --raw-output '.ResourceArn' /opt/ml/metadata/resource-metadata.json)
+    # Region is already set in Sagemaker
+  else
+    export AWS_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+    export AWS_AVAIL_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    export AWS_REGION="$(echo "$AWS_AVAIL_ZONE" | sed 's/[a-z]$//')"
+    aws configure set default.region $AWS_REGION
+fi
 
 # Secured project settings
 export SECRETS_ARN="$(aws ssm get-parameter --name /config/secrets_arn | jq --raw-output .Parameter.Value)"
@@ -35,8 +37,6 @@ export BUCKET="$(aws ssm get-parameter --name /config/software_bucket | jq --raw
 # Only attempt to install the security agents if the above config parameters are set in the host account.
 # If they are not set, then we assume this is not an env we shoud install BCH/HMS software into, so we skip agent installation.
 if [[ ! -z "$SECRETS_ARN" ]] && [[ ! -z "$PROJECT" ]] && [[ ! -z "$BUCKET" ]]; then
-  pmngr install jq
-
   # Install git, set up private key, set up github configs, and clone scripts repo
   echo "## Pulling scripts from private repo hms-dbmi/lz-cicd-ec2-scripts"
   pmngr install git
