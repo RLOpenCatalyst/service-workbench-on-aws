@@ -312,5 +312,6 @@ egressStoreBucketName: ${self:custom.settings.globalNamespace}-egress-store
 # =========================================================================================================
 
 #===============================WAF=IP=Rate=Limit===========================================================
+# Per ip, per 5 minutes
 wafIpRateLimit: 1000
 
