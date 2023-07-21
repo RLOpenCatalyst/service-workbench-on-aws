@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [5.2.12](https://github.com/awslabs/service-workbench-on-aws/compare/v5.2.11...v5.2.12) (2023-07-19)
+
+### Features
+
+* Create new ALB when the limit of workspaces per ALB exceeds
+
 ### [5.2.11](https://github.com/awslabs/service-workbench-on-aws/compare/v5.2.10...v5.2.11) (2023-05-05)
 
 ### Bug Fixes

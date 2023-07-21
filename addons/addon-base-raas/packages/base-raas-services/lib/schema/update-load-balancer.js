@@ -30,47 +30,9 @@ const schema = {
       type: 'number',
       minimum: 0,
     },
-    status: {
-      type: 'string',
-      maxLength: 2048,
-    },
-    inWorkflow: {
-      type: 'string',
-      maxLength: 2048,
-      description: 'Mark true for environment in workflow to exclude it from status poll and sync',
-    },
-    error: {
-      type: 'string',
-      maxLength: 2048,
-    },
-    provisionedProductId: {
-      type: 'string',
-    },
-    cidr: {
-      type: 'string',
-      pattern: '^(?:([0-9]{1,3}\\.){3}[0-9]{1,3}(\\/([0-9]|[1-2][0-9]|3[0-2]))?)?$',
-    },
-    outputs: {
-      type: 'array',
-      items: [
-        {
-          type: 'object',
-          properties: {
-            OutputKey: {
-              type: 'string',
-            },
-            OutputValue: {
-              type: 'string',
-            },
-            Description: {
-              type: 'string',
-            },
-          },
-        },
-      ],
-    },
-    loadBalancerId: {
-      type: 'string',
+    albDependentWorkspacesCount: {
+      type: 'number',
+      minimum: 0,
     },
   },
   required: ['id', 'rev'],

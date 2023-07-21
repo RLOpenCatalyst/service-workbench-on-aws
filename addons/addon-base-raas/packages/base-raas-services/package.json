@@ -10,6 +10,7 @@
     "@amzn/base-services": "workspace:*",
     "@amzn/base-services-container": "workspace:*",
     "@amzn/key-pair-mgmt-services": "workspace:*",
+    "@amzn/environment-sc-workflow-steps": "workspace:*",
     "is-cidr": "^3.1.1",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",

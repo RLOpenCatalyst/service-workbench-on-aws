@@ -53,6 +53,9 @@ const schema = {
         },
       ],
     },
+    loadBalancerId: {
+      type: 'string',
+    },
   },
   required: ['name', 'envTypeId', 'envTypeConfigId'],
 };
