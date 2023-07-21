@@ -20,59 +20,41 @@ const schema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    id: {
+    awsAccountId: {
       type: 'string',
       minLength: 1,
       maxLength: 100,
       pattern: idRegex,
     },
-    rev: {
+    albStackName: {
+      type: 'string',
+      maxLength: 500,
+    },
+    albArn: {
+      type: 'string',
+      maxLength: 500,
+    },
+    listenerArn: {
+      type: 'string',
+      maxLength: 500,
+    },
+    albDnsName: {
+      type: 'string',
+      maxLength: 100,
+    },
+    albSecurityGroup: {
+      type: 'string',
+      maxLength: 100,
+    },
+    albHostedZoneId: {
+      type: ['string', 'null'],
+      maxLength: 100,
+    },
+    albDependentWorkspacesCount: {
       type: 'number',
       minimum: 0,
     },
-    status: {
-      type: 'string',
-      maxLength: 2048,
-    },
-    inWorkflow: {
-      type: 'string',
-      maxLength: 2048,
-      description: 'Mark true for environment in workflow to exclude it from status poll and sync',
-    },
-    error: {
-      type: 'string',
-      maxLength: 2048,
-    },
-    provisionedProductId: {
-      type: 'string',
-    },
-    cidr: {
-      type: 'string',
-      pattern: '^(?:([0-9]{1,3}\\.){3}[0-9]{1,3}(\\/([0-9]|[1-2][0-9]|3[0-2]))?)?$',
-    },
-    outputs: {
-      type: 'array',
-      items: [
-        {
-          type: 'object',
-          properties: {
-            OutputKey: {
-              type: 'string',
-            },
-            OutputValue: {
-              type: 'string',
-            },
-            Description: {
-              type: 'string',
-            },
-          },
-        },
-      ],
-    },
-    loadBalancerId: {
-      type: 'string',
-    },
   },
-  required: ['id', 'rev'],
+  required: ['awsAccountId'],
 };
 module.exports = schema;
