@@ -102,7 +102,7 @@ emrAmiPrefix: ${self:custom.settings.namespace}-EMR-AMI
 # S3 location of files copied to an environment instance along with bootstrap scripts
 environmentInstanceFiles: s3://${self:custom.settings.environmentsBootstrapBucketName}/${self:custom.settings.environmentsBootstrapBucketPrefix}
 
-maximumWorkspacesPerAlb: 4
+maximumWorkspacesPerAlb: 100
 
 # ================================ DB Settings ===========================================
 
