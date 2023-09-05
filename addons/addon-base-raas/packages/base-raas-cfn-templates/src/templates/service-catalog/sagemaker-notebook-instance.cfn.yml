@@ -19,10 +19,6 @@ Parameters:
   Subnet:
     Description: Subnet for EMR nodes, from the VPC selected above
     Type: AWS::EC2::Subnet::Id
-  AccessFromCIDRBlock:
-    Type: String
-    Description: The CIDR used to access sagemaker. This parameter is only required when AppStream is disabled
-    Default: 10.0.0.0/19
   S3Mounts:
     Type: String
     Description: A JSON array of objects with name, bucket and prefix properties used to mount data
@@ -47,6 +43,10 @@ Parameters:
     Type: String
     Description: Boolean for whether workspace should be accessed with AppStream
     AllowedValues: [true, false]
+  VolumeSize:
+    Type: Number
+    Description: The size, in GB, of the ML persistant storage volume to attach to the notebook instance. The default/minimum value is 5 GB.
+    Default: '5'
 
 Conditions:
   IamPolicyEmpty: !Equals [!Ref IamPolicyDocument, '{}']
@@ -61,30 +61,12 @@ Resources:
       VpcId:
         Ref: VPC
       SecurityGroupIngress:
-        - !If
-          - AppStreamEnabled
-          - !Ref 'AWS::NoValue'
-          - IpProtocol: tcp
-            FromPort: 443
-            ToPort: 443
-            CidrIp: !Ref AccessFromCIDRBlock
-      SecurityGroupEgress:
-        - !If
-          - AppStreamEnabled
-          - DestinationSecurityGroupId:
-              Fn::ImportValue: !Sub '${SolutionNamespace}-SageMakerApiSecurityGroup'
-            IpProtocol: '-1'
-          - !Ref 'AWS::NoValue'
-        - !If
-          - AppStreamEnabled
-          - IpProtocol: tcp
-            FromPort: 0
-            ToPort: 65535
-            CidrIp: 0.0.0.0/0
-          - !Ref 'AWS::NoValue'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
   PreSignedURLBoundary:
     Type: AWS::IAM::ManagedPolicy
-    Condition: AppStreamEnabled
     Properties:
       Description: Permission boundary for creating PreSignedURL
       ManagedPolicyName: !Join ['-', [Ref: Namespace, 'presigned-url-permission-boundary']]
@@ -106,12 +88,15 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - 'ssm:GetParameter*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
               - 'logs:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'kms:*'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+              - 'sagemaker:DeleteTags'
+              - 'sagemaker:AddTags'
+              - 'sagemaker:ListTags'
             Resource: '*'
           - Effect: Allow
             Action:
@@ -125,7 +110,6 @@ Resources:
 
   IAMRoleSageMakerURL:
     Type: 'AWS::IAM::Role'
-    Condition: AppStreamEnabled
     Properties:
       RoleName: !Join ['-', [Ref: Namespace, 'presigned-url-sagemaker-notebook-role']]
       Path: '/'
@@ -147,10 +131,10 @@ Resources:
                 - sagemaker:CreatePresignedNotebookInstanceUrl
               Resource:
                 - !Ref BasicNotebookInstance
-              Condition:
-                StringEquals:
-                  aws:SourceVpce:
-                    Fn::ImportValue: !Sub '${SolutionNamespace}-SageMakerVPCE'
+              # Condition: #traffic is sent through firewall with vpc route table.
+              #   StringEquals:
+              #     aws:SourceVpce:
+              #       Fn::ImportValue: !Sub '${SolutionNamespace}-SageMakerVPCE'
       PermissionsBoundary: !Ref PreSignedURLBoundary
 
   IAMRole:
@@ -178,6 +162,48 @@ Resources:
           - !Ref 'AWS::NoValue'
           - PolicyName: !Join ['-', [Ref: Namespace, 's3-egressstore-policy']]
             PolicyDocument: !Ref EgressStoreIamPolicyDocument
+        - PolicyName: !Join ['-', [Ref: Namespace, 'tag-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - sagemaker:DeleteTags
+                  - sagemaker:ListTags
+                  - sagemaker:AddTags
+                Resource: !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:notebook-instance/basicnotebookinstance-*'
+                Condition:
+                  StringLike:
+                    sagemaker:ResourceTag/Name: !Sub '${Namespace}-sagemaker'
+        - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:GetParametersByPath'
+                  - 'ssm:GetParameter'
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/*'
+              - Effect: 'Allow'
+                Action: 's3:GetObject'
+                Resource:
+                  - 'arn:aws:s3:::*-sec-apps/*.txt'
+                  - 'arn:aws:s3:::*-sec-apps/*.rpm'
+                  - 'arn:aws:s3:::*-sec-apps/*.tar'
+                  - 'arn:aws:s3:::*-sec-apps/*.zip'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
+              - Effect: 'Allow'
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:v2*lzprod*'
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:master-fWTVY2'
+              - Effect: 'Allow'
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -198,6 +224,18 @@ Resources:
                     s3:prefix: !Sub
                       - '${S3Prefix}/*'
                       - S3Prefix: !Select [3, !Split ['/', !Ref EnvironmentInstanceFiles]]
+        - PolicyName: !Join ['-', [Ref: Namespace, 'allow-non-account-s3-access']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:GetObject'
+                  - 's3:List*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
         - PolicyName: cw-logs
           PolicyDocument:
             Statement:
@@ -238,28 +276,42 @@ Resources:
       SubnetId: !Ref Subnet
       SecurityGroupIds:
         - !Ref SecurityGroup
-        - !If
-          - AppStreamEnabled
-          - Fn::ImportValue: !Sub '${SolutionNamespace}-WorkspaceSG'
-          - !Ref 'AWS::NoValue'
-      DirectInternetAccess: !If
-        - AppStreamEnabled
-        - Disabled
-        - Enabled
+      DirectInternetAccess: Disabled
       LifecycleConfigName: !GetAtt BasicNotebookInstanceLifecycleConfig.NotebookInstanceLifecycleConfigName
       KmsKeyId: !Ref EncryptionKeyArn
+      PlatformIdentifier: 'notebook-al2-v1'
+      VolumeSizeInGB: !Ref VolumeSize
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [Ref: Namespace, 'sagemaker']]
 
   BasicNotebookInstanceLifecycleConfig:
     Type: 'AWS::SageMaker::NotebookInstanceLifecycleConfig'
     Properties:
+      OnCreate:
+        - Content:
+            Fn::Base64: !Sub |
+              #!/usr/bin/env bash
+              sudo -u ec2-user -i <<'EOF'
+
+              # Save and run kernel installation/loading script
+              aws s3 cp "${EnvironmentInstanceFiles}/install_kernel.sh" "/home/ec2-user/SageMaker/.install_kernel.sh"
+              chmod +x /home/ec2-user/SageMaker/.install_kernel.sh
+              /home/ec2-user/SageMaker/.install_kernel.sh "${EnvironmentInstanceFiles}"
+
+              EOF
       OnStart:
         - Content:
             Fn::Base64: !Sub |
               #!/usr/bin/env bash
+
+              # Run kernel installation/loading script
+              /home/ec2-user/SageMaker/.install_kernel.sh "${EnvironmentInstanceFiles}"
+
               # Download and execute bootstrap script
               aws s3 cp "${EnvironmentInstanceFiles}/get_bootstrap.sh" "/tmp"
               chmod 500 "/tmp/get_bootstrap.sh"
-              /tmp/get_bootstrap.sh "${EnvironmentInstanceFiles}" '${S3Mounts}'
+              /tmp/get_bootstrap.sh "${EnvironmentInstanceFiles}" '${S3Mounts}' >> "/var/log/get_bootstrap.log"
 
               # Stop Idle Script
               if [ "${AutoStopIdleTimeInMinutes}" != "0" ]; then
@@ -329,15 +381,12 @@ Outputs:
 
   MetaConnectionRoleArn:
     Description: IAM Role to use for creating presigned URL
-    Condition: AppStreamEnabled
     Value: !GetAtt IAMRoleSageMakerURL.Arn
 
   MetaConnectionRole:
     Description: IAM Role name to use for creating presigned URL
-    Condition: AppStreamEnabled
     Value: !Ref IAMRoleSageMakerURL
 
   MetaConnectionPolicy:
     Description: Inline policy name that has use for creating presigned URL
-    Condition: AppStreamEnabled
     Value: presigned-url-access

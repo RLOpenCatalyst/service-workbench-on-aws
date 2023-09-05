@@ -4,6 +4,9 @@ Conditions:
     - !Equals ['${self:custom.settings.domainName}', '']
   UseHostedZoneId: !Not
     - !Equals ['${self:custom.settings.hostedZoneId}', '']
+
+  IsInternetFacing: !Equals ['${self:custom.settings.InternetFacing}', 'Yes']
+
   CustomDomainWithoutHostedZoneId: !And
     - !Not
       - !Equals ['${self:custom.settings.domainName}', '']
@@ -64,7 +67,292 @@ Mappings:
     cn-northwest-1:
       Id: '037604701340'
 
+Parameters:
+
+  
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    Default: myenv
+
+  ServiceName:
+    Type: String
+      # update with the name of the service
+    Default: ${self:custom.settings.namespace}
+
+  ContainerPort:
+    Type: Number
+    Default: 80
+
+  HealthCheckPath:
+    Type: String
+    Default: /
+
+  MinContainers:
+    Type: Number
+    Default: 2
+    # for autoscaling
+  MaxContainers:
+    Type: Number
+    Default: 10
+    # target CPU utilization (%)
+  AutoScalingTargetValue:
+    Type: Number
+    Default: 50
+
 Resources:
+
+
+  # =============================================================================================
+  # Setting up Cluster and Load Balancer
+  # =============================================================================================
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join ['', [!Ref ServiceName, Cluster]]
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    # Makes sure the log group is created before it is used.
+    DependsOn: LogGroup
+    Properties:
+      # Name of the task definition. Subsequent versions of the task definition are grouped together under this name.
+      Family: !Join ['', [!Ref ServiceName, TaskDefinition]]
+      # awsvpc is required for Fargate
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: 512
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: 1GB
+      # A role needed by ECS.
+      # "The ARN of the task execution role that containers in this task can assume. All containers in this task are granted the permissions that are specified in this role."
+      # "There is an optional task execution IAM role that you can specify with Fargate to allow your Fargate tasks to make API calls to Amazon ECR."
+      ExecutionRoleArn: !Ref ExecutionRole
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that grants containers in the task permission to call AWS APIs on your behalf."
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !Join
+            - ''
+            - - !Ref AWS::AccountId
+              - '.dkr.ecr.'
+              - '${self:custom.settings.awsRegion}'
+              - '.amazonaws.com/'
+              - '${self:custom.settings.ecrRespositoryName}'
+              - ':latest'
+          
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          # Send logs to CloudWatch Logs
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+
+  # A role needed by ECS
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, TaskRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   -
+      # Policies:
+      #   -
+  # A role needed for auto scaling
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, AutoScalingRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+
+
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref ServiceName, ContainerSecurityGroup]]
+      VpcId: '${self:custom.settings.VPC}'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+  
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref ServiceName, LoadBalancerSecurityGroup]]
+      VpcId: '${self:custom.settings.VPC}'
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  Service:
+    Type: AWS::ECS::Service
+    # This dependency is needed so that the load balancer is setup correctly in time
+    DependsOn:
+      - ListenerHTTPS
+    Properties: 
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 2
+      # This may need to be adjusted if the container takes a while to start up
+      HealthCheckGracePeriodSeconds: 30
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: DISABLED
+          Subnets:
+            - '${self:custom.settings.ECSSubnet1}'
+            - '${self:custom.settings.ECSSubnet2}'
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+
+  LambdaProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, LambdaProxyRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      # will look for a 200 status code by default unless specified otherwise
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      Name: !Join ['', [!Ref ServiceName, TargetGroup]]
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60 # default is 300
+      TargetType: ip
+      VpcId: '${self:custom.settings.VPC}'
+
+  
+  ListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: ${self:custom.settings.certificateArn}
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        # this is the default, but is specified here in case it needs to be changed
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+      Name: !Join ['', [!Ref ServiceName, LoadBalancer]]
+      # "internal" is also an option
+      Scheme: !If
+        - IsInternetFacing
+        - 'internet-facing'
+        - 'internal'
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - '${self:custom.settings.ALBSubnet1}'
+        - '${self:custom.settings.ALBSubnet2}'
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceName, TaskDefinition]]
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref MinContainers
+      MaxCapacity: !Ref MaxContainers
+      ResourceId: !Join ['/', [service, !Ref Cluster, !GetAtt Service.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that allows Application Auto Scaling to modify your scalable target."
+      RoleARN: !GetAtt AutoScalingRole.Arn
+
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref ServiceName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        # Keep things at or lower than 50% CPU utilization, for example
+        TargetValue: !Ref AutoScalingTargetValue
+
   # =============================================================================================
   # S3 Buckets
   # =============================================================================================
@@ -86,6 +374,9 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
 
   LoggingBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -204,16 +495,6 @@ Resources:
               OriginAccessIdentity: !Join ['', ['origin-access-identity/cloudfront/', !Ref 'CloudFrontOAI']]
         Enabled: true
         HttpVersion: 'http2'
-        Aliases: !If
-          - UseCustomDomain
-          - ['${self:custom.settings.domainName}']
-          - !Ref AWS::NoValue
-        ViewerCertificate: !If
-          - UseCustomDomain
-          - AcmCertificateArn: ${self:custom.settings.certificateArn}
-            MinimumProtocolVersion: TLSv1.2_2018
-            SslSupportMethod: sni-only
-          - !Ref AWS::NoValue
         DefaultRootObject: index.html
         CustomErrorResponses:
           - ErrorCachingMinTTL: 300
@@ -250,33 +531,34 @@ Resources:
       CloudFrontOriginAccessIdentityConfig:
         Comment: 'OAI for ${self:custom.settings.websiteBucketName}'
 
+
   # =============================================================================================
   # Route 53
   # =============================================================================================
 
-  HostedZone:
-    Type: AWS::Route53::HostedZone
-    Condition: CustomDomainWithoutHostedZoneId
-    DeletionPolicy: Retain
-    Properties:
-      Name: ${self:custom.settings.domainName}
+  # HostedZone:
+  #   Type: AWS::Route53::HostedZone
+  #   Condition: CustomDomainWithoutHostedZoneId
+  #   DeletionPolicy: Retain
+  #   Properties:
+  #     Name: ${self:custom.settings.domainName}
 
-  DomainRecord:
-    Type: AWS::Route53::RecordSetGroup
-    Condition: UseCustomDomain
-    Properties:
-      # Blank hosted zone ID in stage file creates a new one
-      # This is to ensure backwards compatibility
-      HostedZoneId: !If
-        - UseHostedZoneId
-        - ${self:custom.settings.hostedZoneId}
-        - !Ref HostedZone
-      RecordSets:
-        - Name: ${self:custom.settings.domainName}
-          Type: A
-          AliasTarget:
-            HostedZoneId: Z2FDTNDATAQYW2 # This is a required hard-coded string that is to be used for AWS
-            DNSName: !GetAtt WebsiteCloudFront.DomainName
+  # DomainRecord:
+  #   Type: AWS::Route53::RecordSetGroup
+  #   Condition: UseCustomDomain
+  #   Properties:
+  #     # Blank hosted zone ID in stage file creates a new one
+  #     # This is to ensure backwards compatibility
+  #     HostedZoneId: !If
+  #       - UseHostedZoneId
+  #       - ${self:custom.settings.hostedZoneId}
+  #       - !Ref HostedZone
+  #     RecordSets:
+  #       - Name: ${self:custom.settings.domainName}
+  #         Type: A
+  #         AliasTarget:
+  #           HostedZoneId: Z2FDTNDATAQYW2 # This is a required hard-coded string that is to be used for AWS
+  #           DNSName: !GetAtt LoadBalancer.DNSName
 
 Outputs:
   WebsiteUrl:
@@ -284,7 +566,13 @@ Outputs:
     Value: !If
       - UseCustomDomain
       - https://${self:custom.settings.domainName}
-      - !Join ['', ['https://', !GetAtt WebsiteCloudFront.DomainName]]
+      - !Join ['', ['https://', !GetAtt LoadBalancer.DNSName]]
+
+  LoadBalancerFullName:
+    Description: The load balancers full name
+    Value: !GetAtt "LoadBalancer.LoadBalancerFullName"
+    Export:
+      Name: !Sub "${self:custom.settings.awsRegionShortName}-${self:custom.settings.solutionName}-LoadBalancerFullName"
 
   WebsiteBucket:
     Description: The bucket name of the static website
@@ -300,10 +588,14 @@ Outputs:
 
   HostedZoneId:
     Description: Id of the hosted zone created when a custom domain is used
-    Value: !If
-      - UseCustomDomain
-      - !If
-        - UseHostedZoneId
-        - ${self:custom.settings.hostedZoneId}
-        - !Ref HostedZone
-      - 'CustomDomainNotSet'
+    Value: '${self:custom.settings.HostedZoneId}'
+
+  LambdaProxyArn:
+    Description: Arn of Lambda Proxy Function
+    Value: !GetAtt 'LambdaProxyHandlerLambdaFunction.Arn'
+
+  ClusterName:
+    Value: !Ref Cluster
+
+  ServiceName:
+    Value: !GetAtt 'Service.Name'

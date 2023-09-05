@@ -41,13 +41,29 @@ Parameters:
     Type: String
     AllowedValues: [true, false]
     Description: Is AppStream enabled for this workspace
-    Default: 'false'
+    Default: false
   VPC:
     Description: VPC for EMR nodes.
     Type: AWS::EC2::VPC::Id
   Subnet:
     Description: Subnet for EMR nodes, from the VPC selected above
     Type: AWS::EC2::Subnet::Id
+  ALBSubnet1:
+    Description: Public Subnet1 for Application Load Balancer in front of EMR nodes, from the VPC selected above
+    Type: AWS::EC2::Subnet::Id
+  ALBSubnet2:
+    Description: Public Subnet1 for Application Load Balancer in front of EMR nodes, from the VPC selected above
+    Type: AWS::EC2::Subnet::Id
+  LoadBalancerType:
+    Type: String
+    Description: Enter internal if subnets are private subnets or enter internet-facing if subnets are public subnets 
+    AllowedValues : ["internal", "internet-facing"]
+  ACMSSLCertARN:
+    Type: String
+    Description: The ARN of the AWS Certificate Manager SSL Certificate to associate with the Load Balancer
+  CustomDomainName:
+    Type: String
+    Description: Custom Domain Name you have used for your Service Workbench Application
   CoreNodeCount:
     Description: Number of core nodes to provision (1-80)
     Type: Number
@@ -151,9 +167,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 8192
           ToPort: 8192
-          CidrIp:
-            Ref: AccessFromCIDRBlock
-
+          SourceSecurityGroupId: !GetAtt LoadBalancerSecurityGroup.GroupId
+        
   InstanceProfile:
     Properties:
       Path: '/'
@@ -171,11 +186,13 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - 'ssm:GetParameter*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'kms:*'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
             Resource: '*'
           - Effect: Allow
             Action:
@@ -207,6 +224,47 @@ Resources:
           - !Ref 'AWS::NoValue'
           - PolicyName: !Join ['-', [Ref: Namespace, 's3-egressstore-policy']]
             PolicyDocument: !Ref EgressStoreIamPolicyDocument
+        - PolicyName: !Join ['-', [Ref: Namespace, 'tag-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:DeleteTags'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringLike:
+                    ec2:ResourceTag/Name: !Sub '${Namespace}-emr'
+        - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:GetParametersByPath'
+                  - 'ssm:GetParameter'
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/*'
+              - Effect: 'Allow'
+                Action: 's3:GetObject'
+                Resource:
+                  - 'arn:aws:s3:::*-sec-apps/*.txt'
+                  - 'arn:aws:s3:::*-sec-apps/*.rpm'
+                  - 'arn:aws:s3:::*-sec-apps/*.tar'
+                  - 'arn:aws:s3:::*-sec-apps/*.zip'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
+              - Effect: 'Allow'
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:v2*lzprod*'
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:master-fWTVY2'
+              - Effect: 'Allow'
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -230,6 +288,18 @@ Resources:
                     s3:prefix: !Sub
                       - '${S3Prefix}/*'
                       - S3Prefix: !Select [3, !Split ['/', !Ref EnvironmentInstanceFiles]]
+        - PolicyName: !Join ['-', [Ref: Namespace, 'allow-non-account-s3-access']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:GetObject'
+                  - 's3:List*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
       PermissionsBoundary: !Ref InstanceRolePermissionBoundary
 
   ServiceRole:
@@ -373,10 +443,90 @@ Resources:
       SecurityConfiguration: !Ref EmrSecurityConfiguration
       LogUri: !Sub 's3://${LogBucket}'
 
+# =============================================================================================
+  # Load Balancer
+# =============================================================================================
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LoadBalancerSecurityGroup
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp:
+            Ref: AccessFromCIDRBlock
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: !Ref LoadBalancerType
+      LoadBalancerAttributes:
+        # this is the default, but is specified here in case it needs to be changed
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref ALBSubnet1
+        - !Ref ALBSubnet2
+
+  EC2TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 5
+      TargetType: ip
+      Matcher:
+        HttpCode: '200'
+      Port: 8192
+      Protocol: HTTP
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: '20'
+      Targets:
+      - Id:  !Join
+              - '.'
+              - - !Select [1, !Split ['-', !GetAtt EmrCluster.MasterPublicDNS]]
+                - !Select [2, !Split ['-', !GetAtt EmrCluster.MasterPublicDNS]]
+                - !Select [3, !Split ['-', !GetAtt EmrCluster.MasterPublicDNS]]
+                - !Select [0, !Split ['.', !Select [4, !Split ['-', !GetAtt EmrCluster.MasterPublicDNS]]]]
+        Port: 8192
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC
+
+  ALBHttpsGangliaListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EC2TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Certificates:
+        - CertificateArn: !Ref ACMSSLCertARN
+      Port: 443
+      Protocol: HTTPS
+
 Outputs:
+
+  MetaConnection1Type:
+    Description: Type of environment this connection is for
+    Value: emr
+
   JupyterUrl:
     Description: Open Jupyter on your new EMR cluster
-    Value: !Sub 'http://${EmrCluster.MasterPublicDNS}:8192'
+    Value: !Sub 'https://emr-${LoadBalancer.LoadBalancerName}.${CustomDomainName}'
+  
+  ApplicationLoadBalancerDNS:
+    Description: ALB DNS Name
+    Value: !GetAtt LoadBalancer.DNSName
+  ApplicationLoadBalancerName:
+    Description: ALB DNS Name
+    Value: !GetAtt LoadBalancer.LoadBalancerName
   LogBucket:
     Description: EMR Scratch data and Logs bucket
     Value: !Ref LogBucket
@@ -417,4 +567,4 @@ Outputs:
 
   MetaConnection1Url:
     Description: URL to connect to the Jupyter Notebook
-    Value: !Sub 'http://${EmrCluster.MasterPublicDNS}:8192'
+    Value: !Sub 'https://emr-${LoadBalancer.LoadBalancerName}.${CustomDomainName}'

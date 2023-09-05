@@ -87,11 +87,13 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - 'ssm:GetParameter*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'kms:*'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
             Resource: '*'
           - Effect: Allow
             Action:
@@ -122,6 +124,47 @@ Resources:
           - !Ref 'AWS::NoValue'
           - PolicyName: !Join ['-', [Ref: Namespace, 's3-egressstore-policy']]
             PolicyDocument: !Ref EgressStoreIamPolicyDocument
+        - PolicyName: !Join ['-', [Ref: Namespace, 'tag-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:DeleteTags'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringLike:
+                    ec2:ResourceTag/Name: !Sub '${Namespace}-ec2-windows'
+        - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:GetParametersByPath'
+                  - 'ssm:GetParameter'
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/*'
+              - Effect: 'Allow'
+                Action: 's3:GetObject'
+                Resource:
+                  - 'arn:aws:s3:::*-sec-apps/*.txt'
+                  - 'arn:aws:s3:::*-sec-apps/*.rpm'
+                  - 'arn:aws:s3:::*-sec-apps/*.tar'
+                  - 'arn:aws:s3:::*-sec-apps/*.zip'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
+              - Effect: 'Allow'
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:v2*lzprod*'
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:master-fWTVY2'
+              - Effect: 'Allow'
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -142,6 +185,18 @@ Resources:
                     s3:prefix: !Sub
                       - '${S3Prefix}/*'
                       - S3Prefix: !Select [3, !Split ['/', !Ref EnvironmentInstanceFiles]]
+        - PolicyName: !Join ['-', [Ref: Namespace, 'allow-non-account-s3-access']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:GetObject'
+                  - 's3:List*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
       PermissionsBoundary: !Ref InstanceRolePermissionBoundary
 
   InstanceProfile:
@@ -258,7 +313,7 @@ Resources:
             KmsKeyId: !Ref EncryptionKeyArn
             DeleteOnTermination: true
       NetworkInterfaces:
-        - AssociatePublicIpAddress: !If [ AppStreamEnabled, 'false', 'true' ]
+        - AssociatePublicIpAddress: true #!If [ AppStreamEnabled, 'false', 'true' ] #Assiging public IP address even if appstream is disabled.
           DeviceIndex: '0'
           GroupSet:
             - !Ref SecurityGroup
@@ -359,6 +414,27 @@ Resources:
           # Source the script to start the s3 synchronizer process
           ."c:\workdir\start-s3-synchronizer.ps1"
 
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          $uri = [System.Uri]"${EnvironmentInstanceFiles}"
+          $key = "$($uri.AbsolutePath.Substring(1))/windows/get_security_agents.ps1"
+          Read-S3Object -BucketName $uri.Host -Key $key -File get_security_agents.ps1
+          ."C:\workdir\get_security_agents.ps1"
+          Remove-Item C:\workdir\get_security_agents.ps1
+
+          # Add example workbooks from github
+          cd C:\Users\Administrator\Desktop\
+          mkdir example_workflows
+          cd .\example_workflows\
+
+          Invoke-WebRequest 'https://github.com/hms-dbmi/Access-to-Data-and-Compute-using-Service-Workbench/archive/refs/heads/main.zip' -OutFile .\swb.zip
+          Expand-Archive .\swb.zip .\
+          Remove-Item .\swb.zip
+          
+          Invoke-WebRequest 'https://github.com/hms-dbmi/Access-to-Data-using-PIC-SURE-API/archive/refs/heads/master.zip' -OutFile .\picsure.zip
+          Expand-Archive .\picsure.zip .\
+          Remove-Item .\picsure.zip
+
           cfn-signal.exe -e $lastexitcode --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
           </powershell>
 
@@ -369,7 +445,7 @@ Outputs:
 
   Ec2WorkspacePublicIp:
     Description: Public IP address of the EC2 workspace instance
-    Condition: AppStreamDisabled
+    # Condition: AppStreamDisabled
     Value: !GetAtt [EC2Instance, PublicIp]
 
   Ec2WorkspaceInstanceId:

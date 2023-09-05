@@ -18,8 +18,8 @@ const Service = require('@aws-ee/base-services-container/lib/service');
 
 const { runAndCatch, generateId } = require('../helpers/utils');
 const { toUserNamespace } = require('./helpers/user-namespace');
-const createUserJsonSchema = require('../schema/create-user');
-const updateUserJsonSchema = require('../schema/update-user');
+const createUserJsonSchema = require('../schema/create-user.json');
+const updateUserJsonSchema = require('../schema/update-user.json');
 
 const settingKeys = {
   tableName: 'dbUsers',
@@ -58,6 +58,10 @@ class UserService extends Service {
 
     const { username, password } = user;
     delete user.password;
+
+    // force email and username to lowercase, so we can match whatever the idp is sending
+    user.username = user.username.toLowerCase();
+    user.email = user.email.toLowerCase();
 
     // ensure that an internal user is not created in this request
     if (_.isUndefined(user.authenticationProviderId) || user.authenticationProviderId === 'internal') {
@@ -282,7 +286,7 @@ class UserService extends Service {
       .query()
       .table(table)
       .index('Principal')
-      .key('username', username)
+      .key('username', username.toLowerCase())
       .sortKey('ns')
       .eq(ns)
       .projection(fields)

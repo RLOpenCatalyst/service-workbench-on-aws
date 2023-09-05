@@ -1,3 +1,6 @@
+# What AWS region the backend is running in
+awsRegion: 'us-east-1'
+
 # Options used when issuing JWT token such as which algorithm to use for hashing and how long to keep the tokens alive etc
 # Note that default expiry of access token is set to one hour. This will force the user to logout and login back after an hour
 jwtOptions: '{"algorithm":"HS256","expiresIn":"1 hours"}'
@@ -289,3 +292,26 @@ egressStoreKmsPolicyWorkspaceSid: Allow workspace environments to access egress 
 # The name of the IAM role created for the Lambda egressStoreObjectsHandler
 egressStoreObjectHandlerRoleName: ${self:custom.settings.namespace}-EgressStoreObject
 # =========================================================================================================
+
+# The name of the IAM roles created for the Lambda Authentication Layer handler
+authenticationLayerHandlerRoleName: ${self:custom.settings.namespace}-backend-RoleAuthenticationLayerHandle
+
+# The IAM role arn for the Lambda Authentication Layer handler, we need to define it in the settings because it is being passed to lambdas as an env var
+authenticationLayerHandlerRoleArn: 'arn:aws:iam::${self:custom.settings.awsAccountInfo.awsAccountId}:role/${self:custom.settings.authenticationLayerHandlerRoleName}'
+
+# The name of the IAM roles created for the Lambda Open Data Scrape handler
+openDataScrapeHandlerRoleName: ${self:custom.settings.namespace}-backend-RoleOpenDataScrapeHandler
+
+# The IAM role arn for the Lambda Open Data Scrape handler, we need to define it in the settings because it is being passed to lambdas as an env var
+openDataScrapeHandlerRoleArn: 'arn:aws:iam::${self:custom.settings.awsAccountInfo.awsAccountId}:role/${self:custom.settings.openDataScrapeHandlerRoleName}'
+
+# The name of the IAM roles created for the Lambda Data Source Reachability handler
+dataSourceReachabilityHandlerRoleName: ${self:custom.settings.namespace}-backend-RoleDataSourceReachabilityHandler
+
+# The IAM role arn for the Lambda Data Source Reachability handler, we need to define it in the settings because it is being passed to lambdas as an env var
+dataSourceReachabilityHandlerRoleArn: 'arn:aws:iam::${self:custom.settings.awsAccountInfo.awsAccountId}:role/${self:custom.settings.dataSourceReachabilityHandlerRoleName}'
+
+# The stack name of the 'backend' serverless service
+backendStackName: ${self:custom.settings.namespace}-backend
+
+envMgmtRoleArn: ${self:custom.settings.backendStackName}.EnvMgmtRoleArn}

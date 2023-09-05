@@ -21,8 +21,8 @@ const { runAndCatch } = require('@aws-ee/base-services/lib/helpers/utils');
 const { getSystemRequestContext } = require('@aws-ee/base-services/lib/helpers/system-context');
 const { isAdmin, isCurrentUser } = require('@aws-ee/base-services/lib/authorization/authorization-utils');
 
-const createSchema = require('../../schema/create-environment-sc');
-const updateSchema = require('../../schema/update-environment-sc');
+const createSchema = require('../../schema/create-environment-sc.json');
+const updateSchema = require('../../schema/update-environment-sc.json');
 const environmentScStatus = require('./environent-sc-status-enum');
 const { hasConnections, cfnOutputsArrayToObject } = require('./helpers/connections-util');
 const { hasAccess, accessLevels } = require('../../study/helpers/entities/study-methods');
@@ -560,6 +560,57 @@ class EnvironmentScService extends Service {
       });
   }
 
+  async _updateEnv(requestContext, id, rev, dbObject) {
+    return runAndCatch(
+      async () => {
+        return this._updater()
+          .condition('attribute_exists(id)') // make sure the record being updated exists
+          .key({ id })
+          .rev(rev)
+          .item(dbObject)
+          .update();
+      },
+      async () => {
+        // There are two scenarios here:
+        // 1 - The record does not exist
+        // 2 - The "rev" does not match
+        // We will display the appropriate error message accordingly
+        const existing = await this.find(requestContext, { id, fields: ['id', 'updatedBy'] });
+        if (existing) {
+          throw this.boom.badRequest(
+            `environment information changed just before your request is processed, please try again`,
+            true,
+          );
+        }
+        throw this.boom.notFound(`environment with id "${id}" does not exist`, true);
+      },
+    );
+  }
+
+  async updateTerminationLock(requestContext, environment) {
+    const { id, rev, terminationLocked } = environment;
+    const by = _.get(requestContext, 'principalIdentifier.uid');
+
+    // Validate incoming data
+    const [validationService] = await this.service(['jsonSchemaValidationService']);
+    await validationService.ensureValid(_.omit(environment, ['studyRoles']), updateSchema);
+
+    // Get the rest of the environment data from database, and then overwrite with new terminationLocked value
+    const currentEnv = await this.mustFind(requestContext, { id });
+    const dbObject = _.omit(this._fromRawToDbObject({ ...currentEnv, terminationLocked }, { updatedBy: by }), [
+      'rev',
+      'studyRoles',
+    ]);
+
+    // Save new environemnt data in database
+    const result = await this._updateEnv(requestContext, id, rev, dbObject);
+
+    // Write audit event
+    await this.audit(requestContext, { action: 'update-environment-sc-lock', body: environment });
+
+    return result;
+  }
+
   async update(requestContext, environment, ipAllowListAction = {}) {
     // Validate input
     const [validationService, storageGatewayService] = await this.service([
@@ -593,30 +644,7 @@ class EnvironmentScService extends Service {
     const dbObject = _.omit(this._fromRawToDbObject(environment, { updatedBy: by }), ['rev', 'studyRoles']);
 
     // Time to save the the db object
-    const result = await runAndCatch(
-      async () => {
-        return this._updater()
-          .condition('attribute_exists(id)') // make sure the record being updated exists
-          .key({ id })
-          .rev(rev)
-          .item(dbObject)
-          .update();
-      },
-      async () => {
-        // There are two scenarios here:
-        // 1 - The record does not exist
-        // 2 - The "rev" does not match
-        // We will display the appropriate error message accordingly
-        const existing = await this.find(requestContext, { id, fields: ['id', 'updatedBy'] });
-        if (existing) {
-          throw this.boom.badRequest(
-            `environment information changed just before your request is processed, please try again`,
-            true,
-          );
-        }
-        throw this.boom.notFound(`environment with id "${id}" does not exist`, true);
-      },
-    );
+    const result = await this._updateEnv(requestContext, id, rev, dbObject);
 
     // Handle IP allow list update if needed
     if (!_.isEmpty(existingEnvironment.studyIds) && !_.isEmpty(ipAllowListAction)) {
@@ -971,6 +999,13 @@ class EnvironmentScService extends Service {
 
     const existingEnvironment = await this.mustFind(requestContext, { id });
 
+    if (existingEnvironment.terminationLocked) {
+      throw this.boom.forbidden(
+        `This workspace is locked and cannot be terminated. Please contact your administrator.`,
+        true,
+      );
+    }
+
     // Make sure the user has permissions to delete the environment
     // The following will result in checking permissions by calling the condition function "this._allowAuthorized" first
     await this.assertAuthorized(
@@ -1067,7 +1102,7 @@ class EnvironmentScService extends Service {
 
     if (
       _.isUndefined(templateBody.Resources.SecurityGroup) &&
-      _.isUndefined(templateBody.Resources.MasterSecurityGroup)
+      _.isUndefined(templateBody.Resources.LoadBalancerSecurityGroup)
     ) {
       // Do NOT throw an error here because this is being used by the GET ScEnv API (which is also used to build the View Details page)
       // Rather send back an empty array of ingress rules, to show none were configured in SC template
@@ -1076,11 +1111,14 @@ class EnvironmentScService extends Service {
 
     const cfnTemplateIngressRules = templateBody.Resources.SecurityGroup
       ? templateBody.Resources.SecurityGroup.Properties.SecurityGroupIngress
-      : templateBody.Resources.MasterSecurityGroup.Properties.SecurityGroupIngress; // For EMR use-cases
+      : templateBody.Resources.LoadBalancerSecurityGroup.Properties.SecurityGroupIngress; // For EMR use-cases
 
     const securityGroup =
       _.find(stackResources.StackResourceSummaries, resource => resource.LogicalResourceId === 'SecurityGroup') ||
-      _.find(stackResources.StackResourceSummaries, resource => resource.LogicalResourceId === 'MasterSecurityGroup'); // For EMR use-cases
+      _.find(
+        stackResources.StackResourceSummaries,
+        resource => resource.LogicalResourceId === 'LoadBalancerSecurityGroup',
+      ); // For EMR use-cases
     const securityGroupId = securityGroup.PhysicalResourceId;
     const { securityGroupResponse } = await this.getWorkspaceSecurityGroup(
       requestContext,
@@ -1099,10 +1137,7 @@ class EnvironmentScService extends Service {
       }
       const matchingRule = _.find(
         workspaceIngressRules,
-        workspaceRule =>
-          ruleToUse.FromPort === workspaceRule.FromPort &&
-          ruleToUse.ToPort === workspaceRule.ToPort &&
-          ruleToUse.IpProtocol === workspaceRule.IpProtocol,
+        workspaceRule => ruleToUse.IpProtocol === workspaceRule.IpProtocol,
       );
       const currentCidrRanges = matchingRule ? _.map(matchingRule.IpRanges, ipRange => ipRange.CidrIp) : [];
 

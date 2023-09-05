@@ -33,8 +33,8 @@ const IndexServiceMock = require('../../indexes/indexes-service');
 jest.mock('../../project/project-service');
 const ProjectServiceMock = require('../../project/project-service');
 
-jest.mock('../../../../../../addon-base-post-deployment/packages/base-post-deployment/lib/deployment-store-service.js');
-const DeploymentStoreServiceMock = require('../../../../../../addon-base-post-deployment/packages/base-post-deployment/lib/deployment-store-service.js');
+jest.mock('../../../../../../addon-base-post-deployment/packages/base-post-deployment/lib/deployment-store-service');
+const DeploymentStoreServiceMock = require('../../../../../../addon-base-post-deployment/packages/base-post-deployment/lib/deployment-store-service');
 
 jest.mock('../../aws-accounts/aws-accounts-service');
 const AwsAccountsServiceMock = require('../../aws-accounts/aws-accounts-service');
@@ -273,6 +273,9 @@ describe('ALBService', () => {
       const resolvedInputParams = [
         { Key: 'ACMSSLCertARN', Value: 'Value' },
         { Key: 'IsAppStreamEnabled', Value: 'true' },
+        { Key: 'ALBSubnet1', Value: 'Value' },
+        { Key: 'ALBSubnet2', Value: 'Value' },
+        { Key: 'LoadBalancerType', Value: 'Value' },
       ];
       service.findAwsAccountDetails = jest.fn(() => {
         return {
@@ -293,6 +296,18 @@ describe('ALBService', () => {
           },
           {
             ParameterKey: 'ACMSSLCertARN',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'ALBSubnet1',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'ALBSubnet2',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'LoadBalancerType',
             ParameterValue: 'Value',
           },
           {
@@ -331,6 +346,9 @@ describe('ALBService', () => {
       const resolvedInputParams = [
         { Key: 'ACMSSLCertARN', Value: 'Value' },
         { Key: 'IsAppStreamEnabled', Value: 'false' },
+        { Key: 'ALBSubnet1', Value: 'Value' },
+        { Key: 'ALBSubnet2', Value: 'Value' },
+        { Key: 'LoadBalancerType', Value: 'Value' },
       ];
       service.findAwsAccountDetails = jest.fn(() => {
         return {
@@ -351,6 +369,18 @@ describe('ALBService', () => {
           },
           {
             ParameterKey: 'ACMSSLCertARN',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'ALBSubnet1',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'ALBSubnet2',
+            ParameterValue: 'Value',
+          },
+          {
+            ParameterKey: 'LoadBalancerType',
             ParameterValue: 'Value',
           },
           {
@@ -390,6 +420,9 @@ describe('ALBService', () => {
       const resolvedInputParams = [
         { Key: 'ACMSSLCertARN', Value: 'Value' },
         { Key: 'IsAppStreamEnabled', Value: 'false' },
+        { Key: 'ALBSubnet1', Value: 'Value' },
+        { Key: 'ALBSubnet2', Value: 'Value' },
+        { Key: 'LoadBalancerType', Value: 'Value' },
       ];
       projectService.mustFind.mockImplementationOnce(() => {
         throw service.boom.notFound(`project with id "test-id" does not exist`, true);

@@ -31,10 +31,10 @@ const {
 } = require('./helpers/entities/study-methods');
 const { isAdmin: isStudyAdmin } = require('./helpers/entities/study-permissions-methods');
 const { getStudyIds } = require('./helpers/entities/user-permissions-methods');
-const registerSchema = require('../schema/register-study');
-const createSchema = require('../schema/create-study');
-const updateSchema = require('../schema/update-study');
-const getPermissionsSchema = require('../schema/get-study-permissions');
+const registerSchema = require('../schema/register-study.json');
+const createSchema = require('../schema/create-study.json');
+const updateSchema = require('../schema/update-study.json');
+const getPermissionsSchema = require('../schema/get-study-permissions.json');
 
 const settingKeys = {
   tableName: 'dbStudies',
@@ -42,6 +42,7 @@ const settingKeys = {
   accountIdIndexName: 'dbStudiesAccountIdIndex',
   studyDataBucketName: 'studyDataBucketName',
   enableEgressStore: 'enableEgressStore',
+  awsRegion: 'awsRegion',
 };
 
 class StudyService extends Service {
@@ -508,6 +509,7 @@ class StudyService extends Service {
   }
 
   async list(requestContext, category, fields = []) {
+    const awsRegion = this.settings.get(settingKeys.awsRegion);
     // Get studies allowed for user
     let result = [];
     switch (category) {
@@ -519,6 +521,10 @@ class StudyService extends Service {
           .limit(1000)
           .projection(fields)
           .query();
+        // filter by aws region. Because the scraper might not run until after
+        // this code is deployed we want this filter to be permissive when it isn't
+        // clear if the study is in the correct region
+        result = result.filter(study => [awsRegion, 'unknown', undefined].includes(study.region));
         break;
 
       default: {

@@ -15,7 +15,7 @@
 /* eslint-disable max-classes-per-file */
 import React from 'react';
 import _ from 'lodash';
-import { decorate, computed } from 'mobx';
+import { decorate, computed, observable, runInAction } from 'mobx';
 import { observer, inject, Observer } from 'mobx-react';
 import { withRouter } from 'react-router-dom';
 import {
@@ -27,6 +27,9 @@ import {
   Table,
   Header,
   Message,
+  Checkbox,
+  Loader,
+  Dimmer,
   Popup,
   Label,
   Icon,
@@ -39,11 +42,11 @@ import { swallowError } from '@aws-ee/base-ui/dist/helpers/utils';
 import { isStoreLoading, isStoreError, isStoreReady } from '@aws-ee/base-ui/dist/models/BaseStore';
 import ErrorBox from '@aws-ee/base-ui/dist/parts/helpers/ErrorBox';
 import ProgressPlaceHolder from '@aws-ee/base-ui/dist/parts/helpers/BasicProgressPlaceholder';
+import { displayError } from '@aws-ee/base-ui/dist/helpers/notification';
 
 import By from '../helpers/By';
 import ScEnvironmentButtons from './parts/ScEnvironmentButtons';
 import ScEnvironmentCost from './parts/ScEnvironmentCost';
-import ScEnvironmentTypeName from './parts/ScEnvironmentTypeName';
 import ScEnvironmentCostTable from './parts/ScEnvironmentCostTable';
 
 // This component is used with the TabPane to replace the default Segment wrapper since
@@ -57,7 +60,16 @@ class TabPaneWrapper extends React.Component {
 
 // expected props
 // - scEnvironmentsStore (via injection)
+// - userStore (via injection)
 class ScEnvironmentDetailPage extends React.Component {
+  constructor(props) {
+    super(props);
+    runInAction(() => {
+      // A flag to indicate if we are processing the call to trigger the terminate action
+      this.processing = false;
+    });
+  }
+
   componentDidMount() {
     window.scrollTo(0, 0);
     const store = this.getEnvStore();
@@ -76,6 +88,14 @@ class ScEnvironmentDetailPage extends React.Component {
 
   get envsStore() {
     return this.props.scEnvironmentsStore;
+  }
+
+  get envTypesStore() {
+    return this.props.envTypesStore;
+  }
+
+  get userStore() {
+    return this.props.userStore.user;
   }
 
   get instanceId() {
@@ -171,15 +191,31 @@ class ScEnvironmentDetailPage extends React.Component {
         </Table.Cell>
       </Table.Row>
     );
+    const isAdmin = this.userStore.isAdmin;
+    const canToggleLock = this.envsStore.canChangeState(env.id) && env.state.canTerminate;
+    const envType = this.envTypesStore.getEnvType(env.envTypeId);
 
     return (
       <Table definition>
         <Table.Body>
+          {isAdmin && canToggleLock && renderRow('Termination Lock', this.renderTerminationLock(env))}
           {renderRow('Status', this.renderStatus(env))}
           {renderRow('Owner', <By uid={env.createdBy} skipPrefix />)}
           {renderRow('Studies', studyCount === 0 ? 'No studies linked to this workspace' : studyIds.join(', '))}
           {renderRow('Project', _.isEmpty(env.projectId) ? 'N/A' : env.projectId)}
-          {renderRow('Workspace Type', <ScEnvironmentTypeName envTypeId={env.envTypeId} />)}
+          {renderRow(
+            'Workspace Type',
+            envType?.name || (
+              <>
+                {env.envTypeId}
+                <Popup
+                  trigger={<Icon color="red" className="ml1" name="question circle outline" />}
+                  content="Workspace type is no longer approved or has been deleted."
+                  size="mini"
+                />
+              </>
+            ),
+          )}
         </Table.Body>
       </Table>
     );
@@ -222,6 +258,39 @@ class ScEnvironmentDetailPage extends React.Component {
     );
   }
 
+  renderTerminationLock(env) {
+    return (
+      <>
+        <Dimmer inverted active={this.processing}>
+          <Loader inverted />
+        </Dimmer>
+        <Checkbox
+          fitted
+          checked={env.terminationLocked}
+          toggle
+          label={env.terminationLocked ? 'Locked' : 'Unlocked'}
+          onClick={() => this.handleWorkspaceLockToggle(env)}
+        />
+      </>
+    );
+  }
+
+  async handleWorkspaceLockToggle(env) {
+    const store = this.envsStore;
+    runInAction(() => {
+      this.processing = true;
+    });
+    try {
+      await store.toggleScEnvironmentLock(env.id);
+    } catch (error) {
+      displayError(error);
+    } finally {
+      runInAction(() => {
+        this.processing = false;
+      });
+    }
+  }
+
   renderError(env) {
     if (_.isEmpty(env.error)) return null;
 
@@ -252,7 +321,15 @@ class ScEnvironmentDetailPage extends React.Component {
       },
     ];
 
-    return <Tab className="mt4" menu={{ secondary: true, pointing: true }} renderActiveOnly panes={panes} />;
+    return (
+      <Tab
+        className="mt4"
+        menu={{ secondary: true, pointing: true }}
+        renderActiveOnly
+        panes={panes}
+        defaultActiveIndex="1"
+      />
+    );
   }
 
   renderCfnOutput(env) {
@@ -287,6 +364,13 @@ class ScEnvironmentDetailPage extends React.Component {
 decorate(ScEnvironmentDetailPage, {
   instanceId: computed,
   envsStore: computed,
+  envTypesStore: computed,
+  userStore: computed,
+  processing: observable,
 });
 
-export default inject('scEnvironmentsStore')(withRouter(observer(ScEnvironmentDetailPage)));
+export default inject(
+  'userStore',
+  'envTypesStore',
+  'scEnvironmentsStore',
+)(withRouter(observer(ScEnvironmentDetailPage)));

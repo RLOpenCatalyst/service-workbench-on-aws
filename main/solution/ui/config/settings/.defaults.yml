@@ -1,5 +1,5 @@
 # The Gateway API endpoint
-apiUrl: ${cf:${self:custom.settings.backendStackName}.ServiceEndpoint}
+apiUrl: ${cf:${self:custom.settings.infrastructureStackName}.WebsiteUrl}
 
 # The stack name of the 'backend' serverless service
 backendStackName: ${self:custom.settings.namespace}-backend
@@ -27,3 +27,10 @@ versionAndDate: 'Version ${self:custom.settings.versionNumber} (${self:custom.se
 # After how many minutes should the auto logout dialog be displayed? once displayed the user has 1 minute to dismiss
 # the dialog, otherwise they will be automatically logged out
 autoLogoutTimeoutInMinutes: 30
+
+# Registration page
+enableCustomRegistration: false
+userRegistrationTitle: "WELCOME TO SERVICE WORKBENCH"
+userRegistrationSummary: "<p>Service Workbench provides a self-service, three-click, on-demand service for researchers to build research environments in minutes without needing cloud infrastructure knowledge. Fill out the form below to create your account on Service Workbench hosted on AWS.</p>"
+userRegistrationSuccess: "<p>Your Service Workbench account has been successfully created. What you should expect next:</p><ol><li>The Service Workbench administrator will review your account.</li><li>Once your account is activated, you can login to Service Workbench and start your research.</li></ol>"
+loginWarning: ""

@@ -98,40 +98,29 @@ generate_ssl_certificate() {
     sudo rm -rf "/tmp/rstudio"
 }
 
+# JQ is pretty stable, so there's no reason why we wouldn't just use the most up-to date version
+echo "Installing JQ"
+yum install -y jq
+echo "Finish installing jq"
+
 # Install dependencies
 case "$(env_type)" in
     "emr") # Update config and restart Jupyter
         ;;
     "sagemaker") # Update config and restart Jupyter
-        echo "Installing JQ"
-        sudo mv "${FILES_DIR}/offline-packages/jq-1.5-linux64" "/usr/local/bin/jq"
-        chmod +x "/usr/local/bin/jq"
-        echo "Finish installing jq"
         ;;
     "ec2-linux") # Add mount script to bash profile
         echo "Installing ec2-instance-connect"
         sudo yum localinstall -y "${FILES_DIR}/offline-packages/ec2-linux/ec2-instance-connect-1.1-14.amzn2.noarch.rpm"
         echo "Finish installing ec2-instance-connect"
-        echo "Installing jq"
-        sudo mv "${FILES_DIR}/offline-packages/jq-1.5-linux64" "/usr/local/bin/jq"
-        chmod +x "/usr/local/bin/jq"
-        echo "Finish installing jq"
         ;;
     "rstudio") # Add mount script to bash profile
         export PATH="/usr/local/bin:$PATH"
         set-password
-        echo "Installing jq"
-        cp "${FILES_DIR}/offline-packages/jq-1.5-linux64" "/usr/local/bin/jq"
-        chmod +x "/usr/local/bin/jq"
-        echo "Finish installing jq"
         ;;
     "rstudiov2") # Add mount script to bash profile
         export PATH="/usr/local/bin:$PATH"
         set-password
-        echo "Installing jq"
-        cp "${FILES_DIR}/offline-packages/jq-1.5-linux64" "/usr/local/bin/jq"
-        chmod +x "/usr/local/bin/jq"
-        echo "Finish installing jq"
         ;;
 esac
 
@@ -146,6 +135,8 @@ ln -s "${FILES_DIR}/bin/mount_s3.sh" "/usr/local/bin/mount_s3.sh"
 printf "%s" "$S3_MOUNTS" > "/usr/local/etc/s3-mounts.json"
 echo "Finish mounting S3"
 
+OS_VERSION=`cat /etc/os-release | grep VERSION= | sed 's/VERSION="//' | sed 's/"//'`
+
 # Apply updates to environments based on environment type
 case "$(env_type)" in
     "emr") # Update config and restart Jupyter
@@ -154,12 +145,31 @@ case "$(env_type)" in
         sudo -u hadoop PATH=$PATH:/usr/local/bin /opt/hail-on-AWS-spot-instances/src/jupyter_run.sh
         ;;
     "sagemaker") # Update config and restart Jupyter
-        echo "Installing fuse"
-        cd "${FILES_DIR}/offline-packages/sagemaker/fuse-2.9.4"
-        sudo yum --disablerepo=* localinstall -y *.rpm
-        echo "Finish installing fuse"
+        if [ $OS_VERSION = '2' ]
+        then
+            echo "Installing fuse for AL2"
+            cd "${FILES_DIR}/offline-packages/sagemaker/fuse-2.9.4_AL2"
+            sudo yum --disablerepo=* localinstall -y *.rpm
+            echo "Finish installing fuse"
+            echo "Installing boto3 for AL2"
+            cd "${FILES_DIR}/offline-packages/sagemaker/boto3"
+            sudo yum --disablerepo=* localinstall -y python2-boto3-1.4.4-1.amzn2.noarch.rpm
+            echo "Finish installing boto3"
+        else
+            echo "Installing fuse for AL1"
+            cd "${FILES_DIR}/offline-packages/sagemaker/fuse-2.9.4"
+            sudo yum --disablerepo=* localinstall -y *.rpm
+            echo "Finish installing fuse"
+        fi
+
         update_jupyter_config "/home/ec2-user/.jupyter/jupyter_notebook_config.py"
-        initctl restart jupyter-server --no-wait
+        
+        if [ $OS_VERSION = '2' ]
+        then
+            systemctl restart jupyter-server
+        else
+            initctl restart jupyter-server --no-wait
+        fi
         ;;
     "ec2-linux") # Add mount script to bash profile
         echo "Installing fuse"
@@ -167,19 +177,29 @@ case "$(env_type)" in
         echo "Finish installing fuse"
         printf "\n# Mount S3 study data\nmount_s3.sh\n\n" >> "/home/ec2-user/.bash_profile"
         ;;
-    "rstudio") # Add mount script to bash profile
+    "rstudio") # Add mount script
         echo "Installing fuse"
         sudo yum localinstall -y "${FILES_DIR}/offline-packages/ec2-linux/fuse-2.9.2-11.amzn2.x86_64.rpm"
         echo "Finish installing fuse"
-        printf "\n# Mount S3 study data\nmount_s3.sh\n\n" >> "/home/rstudio-user/.bash_profile"
+
+        # mount study folders for rstudio-user on boot, then run mount script
+        sudo crontab -l 2>/dev/null > "/tmp/crontab"
+        echo '@reboot sudo -u rstudio-user /usr/local/bin/mount_s3.sh >> /var/log/mount_s3.log 2>&1' >> "/tmp/crontab"
+        sudo crontab "/tmp/crontab"
+        sudo -u rstudio-user /usr/local/bin/mount_s3.sh >> /var/log/mount_s3.log 2>&1
         ;;
-    "rstudiov2") # Add mount script to bash profile and generate self signed certificates
+    "rstudiov2") # Add mount script and generate self signed certificates
         echo "Generate SSL certs"
         generate_ssl_certificate
         echo "Installing fuse"
         yum install -y fuse-2.9.2
         echo "Finish installing fuse"
-        printf "\n# Mount S3 study data\nmount_s3.sh\n\n" >> "/home/rstudio-user/.bash_profile"
+
+        # mount study folders for rstudio-user on boot, then run mount script
+        sudo crontab -l 2>/dev/null > "/tmp/crontab"
+        echo '@reboot sudo -u rstudio-user /usr/local/bin/mount_s3.sh >> /var/log/mount_s3.log 2>&1' >> "/tmp/crontab"
+        sudo crontab "/tmp/crontab"
+        sudo -u rstudio-user /usr/local/bin/mount_s3.sh >> /var/log/mount_s3.log 2>&1
         ;;
 esac
 

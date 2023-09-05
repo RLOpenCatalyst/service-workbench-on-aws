@@ -17,7 +17,7 @@
 const _ = require('lodash');
 const Service = require('@aws-ee/base-services-container/lib/service');
 
-const metaSchema = require('../schema/trigger-workflow');
+const metaSchema = require('../schema/trigger-workflow.json');
 
 const settingKeys = {
   stateMachineArn: 'smWorkflow',
@@ -84,7 +84,17 @@ async function triggerStepFunctions({ instance, meta, input }) {
     name,
   };
 
-  const data = await sf.startExecution(params).promise();
+  let data = {};
+  try {
+    data = await sf.startExecution(params).promise();
+  } catch (e) {
+    throw this.boom.internalError(
+      `Step Function could not start execution for State Machine ${stateMachineArn} with params ${JSON.stringify(
+        params,
+      )}. Error code: ${e.code}`,
+      false,
+    );
+  }
 
   return {
     status: instance.status,

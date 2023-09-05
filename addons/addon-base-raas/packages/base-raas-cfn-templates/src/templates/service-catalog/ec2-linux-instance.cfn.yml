@@ -36,6 +36,13 @@ Parameters:
   Subnet:
     Description: The VPC subnet in which the EC2 instance will reside
     Type: AWS::EC2::Subnet::Id
+  SubnetCIDR:
+    Description: CIDR range to block the traffic with other resources in the same subnet
+    Type: String
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.0.0/16
   EnvironmentInstanceFiles:
     Type: String
     Description: >-
@@ -65,11 +72,13 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - 'ssm:GetParameter*'
+              - 'secretsmanager:GetSecretValue'
               - 's3:*'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'kms:*'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
             Resource: '*'
           - Effect: Allow
             Action:
@@ -100,6 +109,47 @@ Resources:
           - !Ref 'AWS::NoValue'
           - PolicyName: !Join ['-', [Ref: Namespace, 's3-egressstore-policy']]
             PolicyDocument: !Ref EgressStoreIamPolicyDocument
+        - PolicyName: !Join ['-', [Ref: Namespace, 'tag-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:DeleteTags'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringLike:
+                    ec2:ResourceTag/Name: !Sub '${Namespace}-ec2-linux'
+        - PolicyName: !Join ['-', [Ref: Namespace, 'config-policy']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:GetParametersByPath'
+                  - 'ssm:GetParameter'
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/*'
+              - Effect: 'Allow'
+                Action: 's3:GetObject'
+                Resource:
+                  - 'arn:aws:s3:::*-sec-apps/*.txt'
+                  - 'arn:aws:s3:::*-sec-apps/*.rpm'
+                  - 'arn:aws:s3:::*-sec-apps/*.tar'
+                  - 'arn:aws:s3:::*-sec-apps/*.zip'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
+              - Effect: 'Allow'
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:v2*lzprod*'
+                  - 'arn:aws:secretsmanager:us-east-1:*:secret:master-fWTVY2'
+              - Effect: 'Allow'
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource: '*'
         - PolicyName: !Join ['-', [Ref: Namespace, 's3-bootstrap-script-policy']]
           PolicyDocument:
             Version: '2012-10-17'
@@ -120,6 +170,18 @@ Resources:
                     s3:prefix: !Sub
                       - '${S3Prefix}/*'
                       - S3Prefix: !Select [3, !Split ['/', !Ref EnvironmentInstanceFiles]]
+        - PolicyName: !Join ['-', [Ref: Namespace, 'allow-non-account-s3-access']]
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:GetObject'
+                  - 's3:List*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    s3:ResourceAccount: !Sub '${AWS::AccountId}'
       PermissionsBoundary: !Ref InstanceRolePermissionBoundary
 
   InstanceProfile:
@@ -191,7 +253,7 @@ Resources:
             Encrypted: true
             KmsKeyId: !Ref EncryptionKeyArn
       NetworkInterfaces:
-        - AssociatePublicIpAddress: !If [ AppStreamEnabled, 'false', 'true' ]
+        - AssociatePublicIpAddress: true #!If [ AppStreamEnabled, 'false', 'true' ] #associating public IP address for internet access even if appstream is disabled
           DeviceIndex: '0'
           GroupSet:
             - !Ref SecurityGroup
@@ -211,7 +273,8 @@ Resources:
           # Download and execute bootstrap script
           aws s3 cp "${EnvironmentInstanceFiles}/get_bootstrap.sh" "/tmp"
           chmod 500 "/tmp/get_bootstrap.sh"
-          /tmp/get_bootstrap.sh "${EnvironmentInstanceFiles}" '${S3Mounts}'
+          /tmp/get_bootstrap.sh "${EnvironmentInstanceFiles}" '${S3Mounts}' >> "/var/log/get_bootstrap.log"
+          iptables -A INPUT -s ${SubnetCIDR} -j DROP
 
           # Signal result to CloudFormation
           /opt/aws/bin/cfn-signal -e $? --stack "${AWS::StackName}" --resource "EC2Instance" --region "${AWS::Region}"
@@ -223,7 +286,7 @@ Outputs:
 
   Ec2WorkspacePublicIp:
     Description: Public IP address of the EC2 workspace instance
-    Condition: AppStreamDisabled
+    # Condition: AppStreamDisabled
     Value: !GetAtt [EC2Instance, PublicIp]
 
   Ec2WorkspaceInstanceId:
