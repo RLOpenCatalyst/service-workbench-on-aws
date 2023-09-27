@@ -535,29 +535,19 @@ class TerminateLaunchDependency extends StepBase {
     // Add custom Error message
     error.message = `ALB Termination has failed with the folowing error. \
         Please contact your administrator. Retry the termination to terminate the workspace. Reason:${error.message}`;
-    const [requestContext, envId, projectId, albLock, stackId] = await Promise.all([
+    const [requestContext, envId, albLock, stackId] = await Promise.all([
       this.payloadOrConfig.object(inPayloadKeys.requestContext),
       this.payloadOrConfig.string(inPayloadKeys.envId),
-      this.state.string('PROJECT_ID'),
       this.state.optionalString('ALB_LOCK'),
       this.state.optionalString('STACK_ID'),
     ]);
     let record;
-    // Updating ALB details to null only if a termination has been triggered
+    // Removing ALB details only if a termination has been triggered
     if (stackId) {
-      const [albService] = await this.mustFindServices(['albService']);
-      const awsAccountId = await albService.findAwsAccountId(requestContext, projectId);
-      const albDetails = {
-        id: awsAccountId,
-        albStackName: null,
-        albArn: null,
-        listenerArn: null,
-        albDnsName: null,
-        albSecurityGroup: null,
-        albDependentWorkspacesCount: 0,
-      };
+      const [albService, environmentScService] = await this.mustFindServices(['albService', 'environmentScService']);
+      const environment = await environmentScService.mustFind(requestContext, { id: envId });
       if (albLock) {
-        await albService.saveAlbDetails(awsAccountId, albDetails);
+        await albService.delete(requestContext, { id: environment.loadBalancerId });
       } else {
         throw new Error(`Error terminating environment. Reason: ALB lock does not exist or expired`);
       }
